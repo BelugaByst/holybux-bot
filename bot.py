@@ -1,6 +1,9 @@
 import asyncio
 import logging
 import time
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -10,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 # ===== НАСТРОЙКИ =====
-BOT_TOKEN = "8692141328:AAFHkSJz-Np2n1d0bgRcvW5PqTbDV_Vyw3E"  # Вставь сюда новый токен
+BOT_TOKEN = os.environ.get('BOT_TOKEN')  # Берем токен из переменных окружения Render
 CHANNEL_ID = "@HolyBux"
 REVIEW_CHANNEL_ID = "@HolyBuxOtziv"  # Канал для отзывов
 ADMIN_ID = 8009278482
@@ -19,6 +22,28 @@ CHANNEL_NAME = "HolyTime"
 REWARD_AMOUNT = 3000000
 COOLDOWN_SECONDS = 3600
 # =====================
+
+# ===== ВЕБ-СЕРВЕР ДЛЯ RENDER =====
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'Bot is running!')
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логи веб-сервера
+
+def run_webserver():
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"🌐 Веб-сервер для Render запущен на порту {port}")
+    server.serve_forever()
+
+# Запускаем веб-сервер в отдельном потоке
+webserver_thread = threading.Thread(target=run_webserver, daemon=True)
+webserver_thread.start()
+# =================================
 
 # 🌈 КРАСИВЫЕ ЦВЕТА ДЛЯ КОНСОЛИ
 class Colors:
@@ -80,10 +105,11 @@ dp = Dispatcher(storage=MemoryStorage())
 class States(StatesGroup):
     waiting_photo = State()
     waiting_nickname = State()
-    waiting_review = State()  # Новое состояние для ожидания отзыва
+    waiting_review = State()
 
 users = {}
 withdraw_requests = {}
+users_who_reviewed = set()
 
 def get_user_data(user_id: int):
     if user_id not in users:
@@ -140,7 +166,6 @@ def sub_keyboard():
         [InlineKeyboardButton(text="🔍 Я ПОДПИСАЛСЯ", callback_data="check_sub")]
     ])
 
-# 🔥 ГЛАВНОЕ МЕНЮ С КНОПКОЙ ОТЗЫВЫ
 def menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 ЗАДАНИЕ", callback_data="task")],
@@ -257,55 +282,68 @@ async def check_subscribe(callback: CallbackQuery):
             show_alert=True
         )
 
-# 🔥 НОВАЯ КНОПКА "ОТЗЫВЫ"
 @dp.callback_query(F.data == "reviews")
-async def reviews_button(callback: CallbackQuery):
+async def reviews_button(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    
     log_user_action(username, "📝 НАЖАЛ ОТЗЫВЫ")
     
-    await callback.message.answer(
-        f"📝 **Хотите оставить отзыв о нашем проекте?**\n\n"
-        f"👉 **Напишите отзыв** в ответ на это сообщение\n\n"
-        f"📢 Ваш отзыв будет опубликован в канале {REVIEW_CHANNEL_ID}\n\n"
-        f"✍️ **Просто напишите текст отзыва:**",
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-# 🔥 ОБРАБОТЧИК ОТЗЫВОВ (любое сообщение после нажатия на отзывы)
-@dp.message()
-async def handle_review(message: Message):
-    # Проверяем что это не команда и не фото и т.д.
-    if not message.text or message.text.startswith('/'):
+    if user_id in users_who_reviewed:
+        log_warning(f"⚠️ {username} УЖЕ ПИСАЛ ОТЗЫВ")
+        await callback.answer(
+            "❌ Вы уже оставляли отзыв!\n\n"
+            "Спасибо за ваше мнение, но можно оставить только один отзыв.",
+            show_alert=True
+        )
         return
     
+    await callback.message.answer(
+        "📝 **Напишите ваш отзыв о нашем проекте**\n\n"
+        "✍️ Просто отправьте текст сообщением\n\n"
+        "📢 Отзыв будет опубликован в канале @HolyBuxOtziv",
+        parse_mode="Markdown"
+    )
+    
+    await state.set_state(States.waiting_review)
+    await callback.answer()
+
+@dp.message(States.waiting_review)
+async def handle_review(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
+    user_tag = message.from_user.username or "Нет username"
     review_text = message.text
+    
+    if user_id in users_who_reviewed:
+        await message.answer(
+            "❌ **Вы уже оставляли отзыв!**\n\n"
+            "Спасибо за ваше мнение, но можно оставить только один отзыв.",
+            parse_mode="Markdown"
+        )
+        await state.clear()
+        return
     
     log_review(f"📝 НОВЫЙ ОТЗЫВ от {username}: {review_text[:50]}...")
     
-    # Отправляем отзыв в канал от имени пользователя
     try:
-        # Создаем сообщение для канала с отзывами
         review_message = (
             f"📝 **Новый отзыв!**\n\n"
-            f"👤 **От:** {message.from_user.full_name}\n"
-            f"🆔 **ID:** {user_id}\n"
-            f"📱 **Username:** @{message.from_user.username or 'Нет'}\n\n"
-            f"💬 **Текст отзыва:**\n{review_text}"
+            f"👤 **Отзыв от** @{user_tag}\n"
+            f"💬 **Текст отзыва:**\n"
+            f"«{review_text}»"
         )
         
-        # Отправляем в канал с отзывами
         await bot.send_message(
             chat_id=REVIEW_CHANNEL_ID,
             text=review_message,
             parse_mode="Markdown"
         )
         
+        users_who_reviewed.add(user_id)
+        
         log_success(f"✅ Отзыв от {username} опубликован в канале {REVIEW_CHANNEL_ID}")
         
-        # Подтверждаем пользователю
         await message.answer(
             "✅ **Спасибо за ваш отзыв!**\n\n"
             f"📢 Он уже опубликован в канале {REVIEW_CHANNEL_ID}\n\n"
@@ -320,6 +358,18 @@ async def handle_review(message: Message):
             "Попробуйте позже или напишите админу @emycac",
             parse_mode="Markdown"
         )
+    
+    await state.clear()
+
+@dp.message()
+async def handle_other_messages(message: Message):
+    if message.text and message.text.startswith('/'):
+        return
+    
+    await message.answer(
+        "❓ **Используй кнопки меню или команду /start**",
+        parse_mode="Markdown"
+    )
 
 @dp.callback_query(F.data == "help")
 async def help_button(callback: CallbackQuery):
@@ -591,7 +641,6 @@ async def reject_screenshot(callback: CallbackQuery):
     await callback.message.edit_caption(callback.message.caption + "\n❌ ОТКЛОНЕНО")
     await callback.answer("Готово!")
 
-# 🔥 ИСПРАВЛЕННЫЙ ОБРАБОТЧИК "КУПИЛ"
 @dp.callback_query(F.data.startswith("bought_"))
 async def bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -608,7 +657,6 @@ async def bought(callback: CallbackQuery):
         log_success(f"💰 Списано {old_balance:,} монет")
     
     try:
-        # 🔥 НОВОЕ СООБЩЕНИЕ ПОСЛЕ КУПЛИ
         await bot.send_message(
             user_id,
             "✅ **Администрация купила ваш предмет!**\n\n"
