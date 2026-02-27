@@ -12,17 +12,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-# ===== НАСТРОЙКИ =====
-BOT_TOKEN = os.environ.get('BOT_TOKEN')  # Берем токен из переменных окружения Render
-CHANNEL_ID = "@HolyBux"
-REVIEW_CHANNEL_ID = "@HolyBuxOtziv"  # Канал для отзывов
-ADMIN_ID = 8009278482
-ADMIN_USERNAME = "@emycac"
-CHANNEL_NAME = "HolyTime"
-REWARD_AMOUNT = 3000000
-COOLDOWN_SECONDS = 3600
-# =====================
-
 # ===== ВЕБ-СЕРВЕР ДЛЯ RENDER =====
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -32,7 +21,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b'Bot is running!')
     
     def log_message(self, format, *args):
-        pass  # Отключаем логи веб-сервера
+        pass
 
 def run_webserver():
     port = int(os.environ.get('PORT', 10000))
@@ -45,19 +34,30 @@ webserver_thread = threading.Thread(target=run_webserver, daemon=True)
 webserver_thread.start()
 # =================================
 
+# ===== НАСТРОЙКИ =====
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+CHANNEL_ID = "@HolyBux"
+REVIEW_CHANNEL_ID = "@HolyBuxOtziv"
+ADMIN_ID = 8009278482
+ADMIN_USERNAME = "@emycac"
+CHANNEL_NAME = "HolyTime"
+REWARD_AMOUNT = 3000000
+COOLDOWN_SECONDS = 3600
+# =====================
+
 # 🌈 КРАСИВЫЕ ЦВЕТА ДЛЯ КОНСОЛИ
 class Colors:
-    GREEN = '\033[92m'      # Зеленый - успех
-    YELLOW = '\033[93m'     # Желтый - предупреждение
-    RED = '\033[91m'        # Красный - ошибка
-    BLUE = '\033[94m'       # Синий - информация
-    PURPLE = '\033[95m'     # Фиолетовый - действия
-    CYAN = '\033[96m'       # Голубой - пользователь
-    WHITE = '\033[97m'      # Белый
-    BOLD = '\033[1m'        # Жирный
-    END = '\033[0m'         # Сброс цвета
-    ORANGE = '\033[38;5;214m'  # Оранжевый - системное
-    PINK = '\033[38;5;206m'    # Розовый - отзывы
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    PURPLE = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    END = '\033[0m'
+    ORANGE = '\033[38;5;214m'
+    PINK = '\033[38;5;206m'
 
 def current_time():
     return datetime.now().strftime("%H:%M:%S")
@@ -95,10 +95,8 @@ def log_divider():
 def log_big_title(text):
     print(f"{Colors.BOLD}{Colors.PURPLE}▶▶▶ {current_time()} {text} ◀◀◀{Colors.END}")
 
-# Отключаем стандартное логирование
 logging.basicConfig(level=logging.CRITICAL)
 
-# Создаем объекты бота
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -308,6 +306,87 @@ async def reviews_button(callback: CallbackQuery, state: FSMContext):
     await state.set_state(States.waiting_review)
     await callback.answer()
 
+@dp.callback_query(F.data == "help")
+async def help_button(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    log_user_action(username, "❓ ОТКРЫЛ ПОМОЩЬ")
+    
+    await callback.message.answer(
+        f"❓ **У ТЕБЯ ЕСТЬ ПРОБЛЕМА?**\n\n"
+        f"📝 **Пиши сюда:** {ADMIN_USERNAME}\n"
+        f"📢 **Наш ТГК:** {CHANNEL_NAME}\n"
+        f"📝 **Канал с отзывами:** {REVIEW_CHANNEL_ID}\n\n"
+        f"⚡ **Админ ответит в ближайшее время!**",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "task")
+async def task(callback: CallbackQuery, state: FSMContext):
+    username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    
+    log_user_action(username, "📋 ПЫТАЕТСЯ ВЗЯТЬ ЗАДАНИЕ")
+    
+    if not can_do_task(user_id):
+        time_left = get_time_left(user_id)
+        log_warning(f"⚠️ {username} НЕ МОЖЕТ ВЗЯТЬ ЗАДАНИЕ. Осталось: {time_left}")
+        await callback.answer(
+            f"⏳ Подожди {time_left} до следующего задания!",
+            show_alert=True
+        )
+        return
+    
+    log_success(f"✅ {username} ВЗЯЛ ЗАДАНИЕ")
+    
+    await callback.message.edit_text(
+        "📋 **Твоё задание:**\n\n"
+        "1️⃣ Зайди на сервер\n"
+        "2️⃣ Напиши в чат: !Кому нужна валюта заходим в тг бота @HolyBuxBot_Bot\n"
+        "3️⃣ Сделай скриншот\n"
+        "4️⃣ Отправь скриншот сюда\n\n"
+        f"💰 Награда: {REWARD_AMOUNT:,} монет"
+    )
+    await callback.message.answer("📸 **Отправь скриншот:**", parse_mode="Markdown")
+    await state.set_state(States.waiting_photo)
+    await callback.answer()
+
+# ============= ВАЖНО: ПРАВИЛЬНЫЙ ПОРЯДОК ОБРАБОТЧИКОВ =============
+
+@dp.message(States.waiting_photo, F.photo)
+async def get_photo(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.first_name
+    name = message.from_user.full_name
+    
+    log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
+    log_info(f"🆔 ID фото: {message.photo[-1].file_id}")
+    
+    photo = message.photo[-1]
+    
+    await message.answer("✅ **Скриншот отправлен на проверку!**", parse_mode="Markdown")
+    log_success(f"✅ Скриншот от {username} отправлен админу")
+    
+    try:
+        await bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=photo.file_id,
+            caption=f"Новый скриншот от {name} (ID: {user_id})",
+            reply_markup=admin_screenshot_keyboard(user_id)
+        )
+        log_success(f"✅ Фото доставлено админу")
+    except Exception as e:
+        log_error(f"❌ Ошибка отправки админу: {e}")
+        await message.answer("⚠️ Ошибка при отправке админу")
+    
+    await state.clear()
+
+@dp.message(States.waiting_photo)
+async def not_photo(message: Message):
+    username = message.from_user.first_name
+    log_warning(f"⚠️ {username} ОТПРАВИЛ НЕ ФОТО")
+    await message.answer("❌ **Отправь фото, а не текст!**\n\n📸 Сделай скриншот задания и отправь его как фото.", parse_mode="Markdown")
+
 @dp.message(States.waiting_review)
 async def handle_review(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -360,95 +439,6 @@ async def handle_review(message: Message, state: FSMContext):
         )
     
     await state.clear()
-
-@dp.message()
-async def handle_other_messages(message: Message):
-    if message.text and message.text.startswith('/'):
-        return
-    
-    await message.answer(
-        "❓ **Используй кнопки меню или команду /start**",
-        parse_mode="Markdown"
-    )
-
-@dp.callback_query(F.data == "help")
-async def help_button(callback: CallbackQuery):
-    username = callback.from_user.first_name
-    log_user_action(username, "❓ ОТКРЫЛ ПОМОЩЬ")
-    
-    await callback.message.answer(
-        f"❓ **У ТЕБЯ ЕСТЬ ПРОБЛЕМА?**\n\n"
-        f"📝 **Пиши сюда:** {ADMIN_USERNAME}\n"
-        f"📢 **Наш ТГК:** {CHANNEL_NAME}\n"
-        f"📝 **Канал с отзывами:** {REVIEW_CHANNEL_ID}\n\n"
-        f"⚡ **Админ ответит в ближайшее время!**",
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "task")
-async def task(callback: CallbackQuery, state: FSMContext):
-    username = callback.from_user.first_name
-    user_id = callback.from_user.id
-    
-    log_user_action(username, "📋 ПЫТАЕТСЯ ВЗЯТЬ ЗАДАНИЕ")
-    
-    if not can_do_task(user_id):
-        time_left = get_time_left(user_id)
-        log_warning(f"⚠️ {username} НЕ МОЖЕТ ВЗЯТЬ ЗАДАНИЕ. Осталось: {time_left}")
-        await callback.answer(
-            f"⏳ Подожди {time_left} до следующего задания!",
-            show_alert=True
-        )
-        return
-    
-    log_success(f"✅ {username} ВЗЯЛ ЗАДАНИЕ")
-    
-    await callback.message.edit_text(
-        "📋 **Твоё задание:**\n\n"
-        "1️⃣ Зайди на сервер\n"
-        "2️⃣ Напиши в чат: !Кому нужна валюта заходим в тг бота @HolyBuxBot_Bot\n"
-        "3️⃣ Сделай скриншот\n"
-        "4️⃣ Отправь скриншот сюда\n\n"
-        f"💰 Награда: {REWARD_AMOUNT:,} монет"
-    )
-    await callback.message.answer("📸 **Отправь скриншот:**", parse_mode="Markdown")
-    await state.set_state(States.waiting_photo)
-    await callback.answer()
-
-@dp.message(States.waiting_photo, F.photo)
-async def get_photo(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.first_name
-    name = message.from_user.full_name
-    
-    log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
-    log_info(f"🆔 ID фото: {message.photo[-1].file_id}")
-    
-    photo = message.photo[-1]
-    
-    await message.answer("✅ **Скриншот отправлен на проверку!**", parse_mode="Markdown")
-    log_success(f"✅ Скриншот от {username} отправлен админу")
-    
-    try:
-        await bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=photo.file_id,
-            caption=f"Новый скриншот от {name} (ID: {user_id})",
-            reply_markup=admin_screenshot_keyboard(user_id)
-        )
-        log_success(f"✅ Фото доставлено админу")
-    except Exception as e:
-        log_error(f"❌ Ошибка отправки админу: {e}")
-        await message.answer("⚠️ Ошибка при отправке админу")
-    
-    await state.clear()
-
-@dp.message(States.waiting_photo)
-async def not_photo(message: Message):
-    username = message.from_user.first_name
-    log_warning(f"⚠️ {username} ОТПРАВИЛ НЕ ФОТО")
-    await message.answer("❌ **Отправь фото!**", parse_mode="Markdown")
 
 @dp.callback_query(F.data == "balance")
 async def balance(callback: CallbackQuery):
@@ -583,6 +573,8 @@ async def handle_nickname(message: Message, state: FSMContext):
     
     await state.clear()
 
+# ============= АДМИН КОМАНДЫ =============
+
 @dp.callback_query(F.data.startswith("ok_"))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -701,6 +693,18 @@ async def not_bought(callback: CallbackQuery):
     )
     await callback.answer("Готово!")
 
+# ============= ПОСЛЕДНИМ ИДЕТ ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ =============
+@dp.message()
+async def handle_other_messages(message: Message):
+    if message.text and message.text.startswith('/'):
+        return
+    
+    await message.answer(
+        "❓ **Используй кнопки меню или команду /start**",
+        parse_mode="Markdown"
+    )
+
+# ============= ЗАПУСК =============
 async def main():
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                 🚀 ТЕЛЕГРАМ БОТ ЗАПУЩЕН 🚀                  ║{Colors.END}")
