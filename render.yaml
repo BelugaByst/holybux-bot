@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: holybux-bot
+    runtime: python
+    region: frankfurt  # или singapore, ohio и т.д.
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: python bot.py
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: BOT_TOKEN
+        sync: false  # будет запрошен при деплое
+      - key: ADMIN_ID
+        value: 8009278482
+      - key: CHANNEL_ID
+        value: "@HolyBux"
+      - key: REVIEW_CHANNEL_ID
+        value: "@HolyBuxOtziv"
+      - key: PYTHON_VERSION
+        value: 3.10.0
