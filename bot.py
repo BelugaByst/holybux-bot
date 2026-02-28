@@ -25,7 +25,7 @@ ADMIN_USERNAME = "@emycac"
 CHANNEL_NAME = "HolyTime"
 REWARD_AMOUNT = 3000000
 COOLDOWN_SECONDS = 3600
-REFERRAL_BONUS = 1000000  # 1.000.000 за реферала
+REFERRAL_BONUS = 1000000
 
 # ===== КЛАССЫ СОСТОЯНИЙ =====
 class States(StatesGroup):
@@ -37,7 +37,7 @@ class States(StatesGroup):
 users = {}
 withdraw_requests = {}
 users_who_reviewed = set()
-referrals = {}  # Для хранения рефералов
+referrals = {}
 
 # ===== ВЕБ-СЕРВЕР =====
 app = web.Application()
@@ -261,6 +261,7 @@ async def start(message: Message):
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
+# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ (СТРОКА 214) =====
 @dp.callback_query_handler(lambda c: c.data == 'ref_link')
 async def ref_link(callback: CallbackQuery):
     username = callback.from_user.first_name
