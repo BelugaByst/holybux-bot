@@ -2,43 +2,19 @@ import asyncio
 import logging
 import time
 import os
-import threading
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from datetime import datetime
-import aiohttp
+
+# ===== ВЕБ-СЕРВЕР =====
 from aiohttp import web
-
-# ===== ВЕБ-СЕРВЕР ДЛЯ RENDER =====
-async def handle_health(request):
-    return web.Response(text="Bot is running!")
-
-async def ping_self():
-    while True:
-        await asyncio.sleep(40)
-        try:
-            port = int(os.environ.get('PORT', 10000))
-            async with aiohttp.ClientSession() as session:
-                await session.get(f"http://localhost:{port}/", timeout=2)
-        except:
-            pass
-
-async def run_webserver():
-    app = web.Application()
-    app.router.add_get('/', handle_health)
-    port = int(os.environ.get('PORT', 10000))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    print(f"🌐 Веб-сервер на порту {port}")
-    asyncio.create_task(ping_self())
+import aiohttp
 
 # ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -50,72 +26,27 @@ CHANNEL_NAME = "HolyTime"
 REWARD_AMOUNT = 3000000
 COOLDOWN_SECONDS = 3600
 
-# ===== ЦВЕТА =====
-class Colors:
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    PURPLE = '\033[95m'
-    CYAN = '\033[96m'
-    WHITE = '\033[97m'
-    BOLD = '\033[1m'
-    END = '\033[0m'
-    ORANGE = '\033[38;5;214m'
-    PINK = '\033[38;5;206m'
-
-def current_time():
-    return datetime.now().strftime("%H:%M:%S")
-
-def current_datetime():
-    return datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-
-def log_success(text):
-    print(f"{Colors.GREEN}[✅ {current_time()}] {text}{Colors.END}")
-
-def log_info(text):
-    print(f"{Colors.BLUE}[ℹ️ {current_time()}] {text}{Colors.END}")
-
-def log_warning(text):
-    print(f"{Colors.YELLOW}[⚠️ {current_time()}] {text}{Colors.END}")
-
-def log_error(text):
-    print(f"{Colors.RED}[❌ {current_time()}] {text}{Colors.END}")
-
-def log_action(text):
-    print(f"{Colors.PURPLE}[⚡ {current_time()}] {text}{Colors.END}")
-
-def log_user_action(username, action):
-    print(f"{Colors.CYAN}[👤 {current_time()}] {Colors.BOLD}{username}{Colors.END} {Colors.WHITE}{action}{Colors.END}")
-
-def log_review(text):
-    print(f"{Colors.PINK}[📝 {current_time()}] {text}{Colors.END}")
-
-def log_system(text):
-    print(f"{Colors.ORANGE}[🔧 {current_time()}] {text}{Colors.END}")
-
-def log_divider():
-    print(f"{Colors.BLUE}{'='*70}{Colors.END}")
-
-def log_big_title(text):
-    print(f"{Colors.BOLD}{Colors.PURPLE}▶▶▶ {current_time()} {text} ◀◀◀{Colors.END}")
-
-# ===== ИНИЦИАЛИЗАЦИЯ =====
-logging.basicConfig(level=logging.CRITICAL)
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-
 # ===== КЛАССЫ СОСТОЯНИЙ =====
 class States(StatesGroup):
     waiting_photo = State()
     waiting_review = State()
     waiting_nickname = State()
 
-# ===== ДАННЫЕ =====
+# ===== Глобальные переменные =====
 users = {}
 withdraw_requests = {}
 users_who_reviewed = set()
 
+# ===== ВЕБ-СЕРВЕР (ЭТО ВАЖНО ДЛЯ GUNICORN) =====
+app = web.Application()  # <-- ЭТО НУЖНО ДЛЯ GUNICORN!
+
+async def handle_health(request):
+    return web.Response(text="Bot is running!")
+
+app.router.add_get('/', handle_health)
+app.router.add_get('/health', handle_health)
+
+# ===== ФУНКЦИИ РАБОТЫ С ДАННЫМИ =====
 def load_users():
     global users
     if os.path.exists('users.json'):
@@ -170,6 +101,58 @@ async def check_sub(user_id):
         return member.status in ['member', 'administrator', 'creator']
     except:
         return False
+
+# ===== ЛОГИ =====
+class Colors:
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    PURPLE = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    END = '\033[0m'
+    ORANGE = '\033[38;5;214m'
+    PINK = '\033[38;5;206m'
+
+def current_time():
+    return datetime.now().strftime("%H:%M:%S")
+
+def current_datetime():
+    return datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+
+def log_success(text):
+    print(f"{Colors.GREEN}[✅ {current_time()}] {text}{Colors.END}")
+
+def log_info(text):
+    print(f"{Colors.BLUE}[ℹ️ {current_time()}] {text}{Colors.END}")
+
+def log_warning(text):
+    print(f"{Colors.YELLOW}[⚠️ {current_time()}] {text}{Colors.END}")
+
+def log_error(text):
+    print(f"{Colors.RED}[❌ {current_time()}] {text}{Colors.END}")
+
+def log_action(text):
+    print(f"{Colors.PURPLE}[⚡ {current_time()}] {text}{Colors.END}")
+
+def log_user_action(username, action):
+    print(f"{Colors.CYAN}[👤 {current_time()}] {Colors.BOLD}{username}{Colors.END} {Colors.WHITE}{action}{Colors.END}")
+
+def log_system(text):
+    print(f"{Colors.ORANGE}[🔧 {current_time()}] {text}{Colors.END}")
+
+def log_divider():
+    print(f"{Colors.BLUE}{'='*70}{Colors.END}")
+
+def log_big_title(text):
+    print(f"{Colors.BOLD}{Colors.PURPLE}▶▶▶ {current_time()} {text} ◀◀◀{Colors.END}")
+
+# ===== ИНИЦИАЛИЗАЦИЯ =====
+logging.basicConfig(level=logging.CRITICAL)
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
 
 # ===== КЛАВИАТУРЫ =====
 def start_keyboard():
@@ -676,9 +659,9 @@ async def remind_user_about_cooldown(user_id, chat_id):
         except Exception as e:
             log_error(f"Ошибка при отправке напоминания: {e}")
 
-async def main():
+async def start_bot():
+    """Запуск бота (отдельно от веб-сервера)"""
     load_users()
-    asyncio.create_task(run_webserver())
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
@@ -688,16 +671,26 @@ async def main():
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Награда: {Colors.YELLOW}{REWARD_AMOUNT:,}{Colors.END} монет ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}КАЖДЫЕ 40 СЕКУНД{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}GITHUB ACTIONS КАЖДУЮ МИНУТУ{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
     print("")
+    
+    # Запускаем бота
     await dp.start_polling(bot)
 
+# ===== ТОЧКА ВХОДА ДЛЯ GUNICORN =====
 if __name__ == "__main__":
+    # Запускаем бота в фоне
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.create_task(start_bot())
+    
+    # Запускаем веб-сервер (Gunicorn сам запустит app)
+    # Но нам нужно держать loop активным
     try:
-        asyncio.run(main())
+        loop.run_forever()
     except KeyboardInterrupt:
         log_warning("⏹ Бот остановлен пользователем")
         save_users()
