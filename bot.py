@@ -2,24 +2,43 @@ import asyncio
 import logging
 import time
 import os
-import json
-import signal
-from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-
+import json
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-
-# ===== REDIS =====
-import redis
+from datetime import datetime
+import aiohttp
+from aiohttp import web
 
 # ===== ВЕБ-СЕРВЕР ДЛЯ RENDER =====
-from aiohttp import web
+async def handle_health(request):
+    return web.Response(text="Bot is running!")
+
+async def ping_self():
+    while True:
+        await asyncio.sleep(40)
+        try:
+            port = int(os.environ.get('PORT', 10000))
+            async with aiohttp.ClientSession() as session:
+                await session.get(f"http://localhost:{port}/", timeout=2)
+        except:
+            pass
+
+async def run_webserver():
+    app = web.Application()
+    app.router.add_get('/', handle_health)
+    port = int(os.environ.get('PORT', 10000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"🌐 Веб-сервер на порту {port}")
+    asyncio.create_task(ping_self())
 
 # ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -31,189 +50,7 @@ CHANNEL_NAME = "HolyTime"
 REWARD_AMOUNT = 3000000
 COOLDOWN_SECONDS = 3600
 
-# ===== REDIS НАСТРОЙКИ =====
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
-try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    redis_client.ping()
-    print("✅ Redis подключен!")
-except:
-    print("❌ Redis не доступен! Использую JSON как запасной вариант.")
-    redis_client = None
-
-# ===== КЛАССЫ СОСТОЯНИЙ =====
-class Form(StatesGroup):
-    waiting_photo = State()
-    waiting_review = State()
-    waiting_nickname = State()
-
-# ===== Глобальные переменные =====
-users = {}  # Для хранения данных пользователей
-withdraw_requests = {}  # Для хранения запросов на вывод
-users_who_reviewed = set()  # Множество пользователей, оставивших отзыв
-
-# ===== ВЕБ-СЕРВЕР ДЛЯ RENDER (асинхронный) =====
-async def handle_health(request):
-    return web.Response(text="🤖 Bot is running!")
-
-async def run_web_server():
-    app = web.Application()
-    app.router.add_get('/', handle_health)
-    app.router.add_get('/health', handle_health)
-    
-    port = int(os.environ.get('PORT', 10000))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    print(f"🌐 Веб-сервер запущен на порту {port}")
-
-# ===== ФУНКЦИИ РАБОТЫ С ДАННЫМИ =====
-def load_users():
-    global users, users_who_reviewed
-    users = {}
-    users_who_reviewed = set()
-    
-    if redis_client:
-        try:
-            # Загружаем всех пользователей из Redis
-            keys = redis_client.keys("user:*")
-            for key in keys:
-                user_id = key.split(":")[1]
-                user_data = redis_client.hgetall(key)
-                if user_data:
-                    users[user_id] = {
-                        'balance': int(user_data.get('balance', 0)),
-                        'last_task_time': float(user_data.get('last_task_time', 0))
-                    }
-            
-            # Загружаем отзывы
-            reviewed_users = redis_client.smembers("users_who_reviewed")
-            for user_id in reviewed_users:
-                users_who_reviewed.add(int(user_id))
-                
-            print(f"✅ Загружено {len(users)} пользователей и {len(users_who_reviewed)} отзывов из Redis")
-        except Exception as e:
-            print(f"❌ Ошибка загрузки из Redis: {e}")
-            users = {}
-    else:
-        # Если Redis не доступен, пробуем JSON
-        if os.path.exists('users_backup.json'):
-            try:
-                with open('users_backup.json', 'r', encoding='utf-8') as f:
-                    users = json.load(f)
-                    
-                if os.path.exists('reviews_backup.json'):
-                    with open('reviews_backup.json', 'r', encoding='utf-8') as f:
-                        users_who_reviewed = set(json.load(f))
-                        
-                print(f"✅ Загружено {len(users)} пользователей из backup")
-            except Exception as e:
-                print(f"❌ Ошибка загрузки из JSON: {e}")
-                users = {}
-        else:
-            users = {}
-
-def save_users():
-    if redis_client:
-        try:
-            # Сохраняем пользователей в Redis
-            pipe = redis_client.pipeline()
-            for user_id, user_data in users.items():
-                key = f"user:{user_id}"
-                pipe.hset(key, mapping={
-                    'balance': user_data['balance'],
-                    'last_task_time': user_data['last_task_time']
-                })
-            
-            # Сохраняем отзывы
-            pipe.delete("users_who_reviewed")
-            if users_who_reviewed:
-                pipe.sadd("users_who_reviewed", *[str(uid) for uid in users_who_reviewed])
-            
-            pipe.execute()
-            print(f"💾 Сохранено {len(users)} пользователей в Redis")
-            
-            # Делаем backup в JSON на всякий случай
-            with open('users_backup.json', 'w', encoding='utf-8') as f:
-                json.dump(users, f)
-            with open('reviews_backup.json', 'w', encoding='utf-8') as f:
-                json.dump(list(users_who_reviewed), f)
-                
-        except Exception as e:
-            print(f"❌ Ошибка сохранения в Redis: {e}")
-            # fallback на JSON
-            with open('users_backup.json', 'w', encoding='utf-8') as f:
-                json.dump(users, f)
-            with open('reviews_backup.json', 'w', encoding='utf-8') as f:
-                json.dump(list(users_who_reviewed), f)
-    else:
-        # Если Redis нет, сохраняем в JSON
-        with open('users_backup.json', 'w', encoding='utf-8') as f:
-            json.dump(users, f)
-        with open('reviews_backup.json', 'w', encoding='utf-8') as f:
-            json.dump(list(users_who_reviewed), f)
-
-def get_user_data(user_id):
-    user_id_str = str(user_id)
-    if user_id_str not in users:
-        users[user_id_str] = {'balance': 0, 'last_task_time': 0}
-        save_users()  # Сразу сохраняем нового пользователя
-    return users[user_id_str]
-
-def add_balance(user_id, amount):
-    user_str_id = str(user_id)
-    if user_str_id not in users:
-        users[user_str_id] = {'balance': 0, 'last_task_time': 0}
-    users[user_str_id]['balance'] += amount
-    save_users()
-
-def can_do_task(user_id):
-    user_data = get_user_data(user_id)
-    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
-
-def get_time_left(user_id):
-    user_data = get_user_data(user_id)
-    time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
-    if time_left <= 0:
-        return "0"
-    hours = int(time_left // 3600)
-    minutes = int((time_left % 3600) // 60)
-    seconds = int(time_left % 60)
-    if hours > 0:
-        return f"{hours}ч {minutes}мин"
-    elif minutes > 0:
-        return f"{minutes}мин {seconds}сек"
-    else:
-        return f"{seconds}сек"
-
-async def check_sub(user_id):
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
-
-async def auto_save():
-    """Автоматическое сохранение каждые 5 минут"""
-    while True:
-        await asyncio.sleep(300)  # 5 минут
-        if users:
-            save_users()
-            print(f"💾 Автосохранение: {len(users)} пользователей сохранено")
-
-async def remind_user_about_cooldown(user_id, chat_id):
-    time_left = get_time_left(user_id)
-    if time_left != "0":
-        try:
-            await bot.send_message(
-                chat_id,
-                f"⏳ Осталось подождать: {time_left} до следующего задания!"
-            )
-        except Exception as e:
-            print(f"Ошибка при отправке напоминания: {e}")
-
-# ===== ЦВЕТА ДЛЯ ЛОГОВ =====
+# ===== ЦВЕТА =====
 class Colors:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
@@ -267,6 +104,72 @@ def log_big_title(text):
 logging.basicConfig(level=logging.CRITICAL)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+
+# ===== КЛАССЫ СОСТОЯНИЙ =====
+class States(StatesGroup):
+    waiting_photo = State()
+    waiting_review = State()
+    waiting_nickname = State()
+
+# ===== ДАННЫЕ =====
+users = {}
+withdraw_requests = {}
+users_who_reviewed = set()
+
+def load_users():
+    global users
+    if os.path.exists('users.json'):
+        try:
+            with open('users.json', 'r', encoding='utf-8') as f:
+                users = json.load(f)
+        except:
+            users = {}
+    else:
+        users = {}
+
+def save_users():
+    with open('users.json', 'w', encoding='utf-8') as f:
+        json.dump(users, f)
+
+def get_user_data(user_id):
+    user_id_str = str(user_id)
+    if user_id_str not in users:
+        users[user_id_str] = {'balance': 0, 'last_task_time': 0}
+        save_users()
+    return users[user_id_str]
+
+def add_balance(user_id, amount):
+    user_str_id = str(user_id)
+    if user_str_id not in users:
+        users[user_str_id] = {'balance': 0, 'last_task_time': 0}
+    users[user_str_id]['balance'] += amount
+    save_users()
+
+def can_do_task(user_id):
+    user_data = get_user_data(user_id)
+    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
+
+def get_time_left(user_id):
+    user_data = get_user_data(user_id)
+    time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
+    if time_left <= 0:
+        return "0"
+    hours = int(time_left // 3600)
+    minutes = int((time_left % 3600) // 60)
+    seconds = int(time_left % 60)
+    if hours > 0:
+        return f"{hours}ч {minutes}мин"
+    elif minutes > 0:
+        return f"{minutes}мин {seconds}сек"
+    else:
+        return f"{seconds}сек"
+
+async def check_sub(user_id):
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
 
 # ===== КЛАВИАТУРЫ =====
 def start_keyboard():
@@ -413,7 +316,7 @@ async def reviews_button(callback: CallbackQuery, state: FSMContext):
         "📢 Отзыв будет опубликован в канале @HolyBuxOtziv",
         parse_mode="Markdown"
     )
-    await state.set_state(Form.waiting_review)
+    await state.set_state(States.waiting_review)
     await callback.answer()
 
 @dp.callback_query(F.data == "help")
@@ -452,10 +355,10 @@ async def task(callback: CallbackQuery, state: FSMContext):
         f"💰 Награда: {REWARD_AMOUNT:,} монет"
     )
     await callback.message.answer("📸 **Отправь скриншот:**", parse_mode="Markdown")
-    await state.set_state(Form.waiting_photo)
+    await state.set_state(States.waiting_photo)
     await callback.answer()
 
-@dp.message(Form.waiting_photo, F.photo)
+@dp.message(States.waiting_photo, F.photo)
 async def get_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -478,13 +381,13 @@ async def get_photo(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке админу")
     await state.clear()
 
-@dp.message(Form.waiting_photo)
+@dp.message(States.waiting_photo)
 async def not_photo(message: Message):
     username = message.from_user.first_name
     log_warning(f"⚠️ {username} ОТПРАВИЛ НЕ ФОТО")
     await message.answer("❌ **Отправь фото, а не текст!**\n\n📸 Сделай скриншот задания и отправь его как фото.", parse_mode="Markdown")
 
-@dp.message(Form.waiting_review)
+@dp.message(States.waiting_review)
 async def handle_review(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -511,7 +414,6 @@ async def handle_review(message: Message, state: FSMContext):
             parse_mode="Markdown"
         )
         users_who_reviewed.add(user_id)
-        save_users()  # Сохраняем после добавления отзыва
         log_success(f"✅ Отзыв от {username} опубликован в канале {REVIEW_CHANNEL_ID}")
         await message.answer(
             "✅ **Спасибо за ваш отзыв!**\n\n"
@@ -604,9 +506,9 @@ async def withdraw_all(callback: CallbackQuery, state: FSMContext):
         f"✍️ **Введи свой никнейм:**",
         parse_mode="Markdown"
     )
-    await state.set_state(Form.waiting_nickname)
+    await state.set_state(States.waiting_nickname)
 
-@dp.message(Form.waiting_nickname)
+@dp.message(States.waiting_nickname)
 async def handle_nickname(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -620,7 +522,6 @@ async def handle_nickname(message: Message, state: FSMContext):
             "Введи никнейм длиной от 2 до 32 символов:"
         )
         return
-    # Сохраняем запрос
     users[str(user_id)]['last_task_time'] = time.time()
     save_users()
     withdraw_requests[user_id] = {
@@ -655,7 +556,6 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.clear()
 
-# ===== АДМИН КЛИКИ =====
 @dp.callback_query(F.data.startswith("ok_"))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -754,30 +654,31 @@ async def not_bought(callback: CallbackQuery):
         log_success(f"✅ Уведомление об отказе отправлено")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление: {e}")
-    
     await callback.message.edit_text(
         callback.message.text + "\n\n❌ **НЕ КУПЛЕНО**\n💰 Баланс сохранен"
     )
     await callback.answer("Готово!")
 
-# ===== ОБРАБОТКА ВСЕХ ПРОСТЫХ СООБЩЕНИЙ =====
 @dp.message()
 async def handle_other_messages(message: Message):
     if message.text and message.text.startswith('/'):
         return
     await message.answer("❓ **Используй кнопки меню или команду /start**", parse_mode="Markdown")
 
-# ===== ЗАПУСК =====
+async def remind_user_about_cooldown(user_id, chat_id):
+    time_left = get_time_left(user_id)
+    if time_left != "0":
+        try:
+            await bot.send_message(
+                chat_id,
+                f"⏳ Осталось подождать: {time_left} до следующего задания!"
+            )
+        except Exception as e:
+            log_error(f"Ошибка при отправке напоминания: {e}")
+
 async def main():
-    # Загружаем пользователей
     load_users()
-    
-    # Запускаем веб-сервер
-    asyncio.create_task(run_web_server())
-    
-    # Запускаем автосохранение
-    asyncio.create_task(auto_save())
-    
+    asyncio.create_task(run_webserver())
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
@@ -787,12 +688,11 @@ async def main():
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Награда: {Colors.YELLOW}{REWARD_AMOUNT:,}{Colors.END} монет ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}КАЖДЫЕ 40 СЕКУНД{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
     print("")
-    
-    # Запускаем бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
