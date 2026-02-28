@@ -722,4 +722,85 @@ async def bought(callback: CallbackQuery):
         try:
             await bot.send_message(
                 user_id,
-                "✅ **Администрация купила ваш предмет!**
+                "✅ **Администрация купила ваш предмет!**\n\n"
+                "📝 **Если хотите, напишите отзыв о нашем проекте!**\n\n"
+                "👉 Нажмите кнопку **📝 ОТЗЫВЫ** в главном меню и напишите отзыв\n\n"
+                "📢 Ваш отзыв будет опубликован в канале @HolyBuxOtziv от вашего имени",
+                parse_mode="Markdown"
+            )
+            log_success(f"✅ Уведомление о покупке с предложением отзыва отправлено пользователю {user_id}")
+        except Exception as e:
+            log_error(f"❌ Не удалось отправить уведомление: {e}")
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ **КУПЛЕНО**\n💰 Баланс обнулен"
+        )
+        await callback.answer("Готово!")
+
+@dp.callback_query(F.data.startswith("not_bought_"))
+async def not_bought(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет прав!", show_alert=True)
+        return
+    user_id = int(callback.data.split("_")[1])
+    log_big_title(f"АДМИН: НЕ КУПЛЕНО")
+    log_action(f"👑 Админ отклонил покупку для пользователя {user_id}")
+    try:
+        await bot.send_message(
+            user_id,
+            "❌ **Вы не выставили предмет либо ваш ник неправильный!**\n\n"
+            "💰 Ваш баланс сохранен. Попробуйте еще раз.",
+            parse_mode="Markdown"
+        )
+        log_success(f"✅ Уведомление об отказе отправлено")
+    except Exception as e:
+        log_error(f"❌ Не удалось отправить уведомление: {e}")
+    await callback.message.edit_text(
+        callback.message.text + "\n\n❌ **НЕ КУПЛЕНО**\n💰 Баланс сохранен"
+    )
+    await callback.answer("Готово!")
+
+# ===== ОБРАБОТКА ВСЕХ ПРОСТЫХ СООБЩЕНИЙ =====
+@dp.message()
+async def handle_other_messages(message: Message):
+    if message.text and message.text.startswith('/'):
+        return
+    await message.answer("❓ **Используй кнопки меню или команду /start**", parse_mode="Markdown")
+
+# ===== ЗАПУСК =====
+async def main():
+    # Загружаем пользователей
+    load_users()
+    
+    # Запускаем веб-сервер
+    asyncio.create_task(run_web_server())
+    
+    # Запускаем автосохранение
+    asyncio.create_task(auto_save())
+    
+    print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 📢 Канал: {Colors.CYAN}{CHANNEL_ID}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 📝 Канал отзывов: {Colors.PINK}{REVIEW_CHANNEL_ID}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 👤 Админ: {Colors.GREEN}{ADMIN_USERNAME}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Награда: {Colors.YELLOW}{REWARD_AMOUNT:,}{Colors.END} монет ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
+    print("")
+    log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
+    print("")
+    
+    # Запускаем бота
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        log_warning("⏹ Бот остановлен пользователем")
+        save_users()
+        print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
+    except Exception as e:
+        log_error(f"❌ Критическая ошибка: {e}")
+        save_users()
