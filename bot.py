@@ -812,7 +812,7 @@ async def start_bot():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
-    # Запускаем веб-сервер в отдельном процессе (не в потоке!)
+    # Запускаем веб-сервер в отдельном процессе
     from multiprocessing import Process
     
     def run_web():
