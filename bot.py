@@ -682,10 +682,6 @@ async def start_bot():
     await dp.start_polling()
 
 # ===== ТОЧКА ВХОДА =====
-async def main():
-    # Запускаем бота
-    await start_bot()
-
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
@@ -699,8 +695,11 @@ if __name__ == "__main__":
     
     # Запускаем бота в главном потоке
     try:
-        asyncio.run(main())
+        asyncio.run(start_bot())
     except KeyboardInterrupt:
-        log_warning("⏹ Бот остановлен")
+        log_warning("⏹ Бот остановлен пользователем")
         save_users()
-
+        print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
+    except Exception as e:
+        log_error(f"❌ Критическая ошибка: {e}")
+        save_users()
