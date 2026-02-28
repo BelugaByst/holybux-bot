@@ -309,7 +309,7 @@ async def help_button(callback: CallbackQuery):
     await callback.message.answer(
         f"❓ **У ТЕБЯ ЕСТЬ ПРОБЛЕМА?**\n\n"
         f"📝 **Пиши сюда:** {ADMIN_USERNAME}\n"
-        f"📢 **Наш ТГК:** {CHANNEL_NAME}\n"
+        f"📝 **Наш ТГК:** {CHANNEL_NAME}\n"
         f"📝 **Канал с отзывами:** {REVIEW_CHANNEL_ID}\n\n"
         f"⚡ **Админ ответит в ближайшее время!**",
         parse_mode="Markdown"
@@ -698,3 +698,4 @@ if __name__ == "__main__":
     except Exception as e:
         log_error(f"❌ Критическая ошибка: {e}")
         save_users()
+
