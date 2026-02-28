@@ -682,10 +682,25 @@ async def start_bot():
     await dp.start_polling()
 
 # ===== ТОЧКА ВХОДА =====
+async def main():
+    # Запускаем бота
+    await start_bot()
+
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.create_task(start_bot())
-    
     port = int(os.environ.get('PORT', 10000))
-    web.run_app(app, host='0.0.0.0', port=port)
+    
+    # Запускаем веб-сервер в отдельном потоке
+    from threading import Thread
+    def run_web():
+        web.run_app(app, host='0.0.0.0', port=port)
+    
+    web_thread = Thread(target=run_web, daemon=True)
+    web_thread.start()
+    
+    # Запускаем бота в главном потоке
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        log_warning("⏹ Бот остановлен")
+        save_users()
+
