@@ -193,7 +193,6 @@ dp = Dispatcher(bot, storage=storage)
 # ===== КЛАВИАТУРЫ =====
 def start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎉 Друзья", callback_data="ref_link")],
         [InlineKeyboardButton(text="✅ ДА", callback_data="yes")],
         [InlineKeyboardButton(text="❌ НЕТ", callback_data="no")]
     ])
@@ -838,3 +837,4 @@ if __name__ == "__main__":
         save_referrals()
         save_screenshots()
         web_process.terminate()
+
