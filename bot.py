@@ -812,7 +812,6 @@ async def start_bot():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
-    # Запускаем веб-сервер в отдельном потоке
     def run_web():
         web.run_app(app, host='0.0.0.0', port=port)
     
@@ -820,7 +819,6 @@ if __name__ == "__main__":
     web_thread.start()
     print(f"🌐 Веб-сервер запущен на порту {port}")
     
-    # Запускаем бота в главном потоке
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
