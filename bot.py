@@ -100,49 +100,115 @@ logging.basicConfig(level=logging.CRITICAL)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ===== ФАЙЛ ДЛЯ РЕФЕРАЛЬНЫХ ДАННЫХ =====
-REF_DATA_FILE = 'ref_data.json'
-
-# Функции для работы с реферальными данными
-def load_ref_data():
-    if os.path.exists(REF_DATA_FILE):
-        try:
-            with open(REF_DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return {}
-    else:
-        return {}
-
-def save_ref_data(data):
-    with open(REF_DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f)
-
-def get_user_ref_data(user_id):
-    data = load_ref_data()
-    user_id_str = str(user_id)
-    if user_id_str not in data:
-        ref_link = f"https://t.me/{bot.username}?start=ref_{user_id_str}"
-        data[user_id_str] = {'referrals': 0, 'ref_link': ref_link}
-        save_ref_data(data)
-    return data[user_id_str]
-
-def increment_referral(referrer_id):
-    data = load_ref_data()
-    referrer_id_str = str(referrer_id)
-    if referrer_id_str in data:
-        data[referrer_id_str]['referrals'] += 1
-        save_ref_data(data)
-
-# ===== КЛАССЫ СОСТОЯНИЙ =====
-class States(StatesGroup):
-    waiting_photo = State()
-    waiting_nickname = State()
-    waiting_review = State()
-
+# ===== ВАШИ Глобальные переменные =====
+users = {}  # Для хранения данных пользователей
+withdraw_requests = {}  # Для хранения запросов на вывод
 users_who_reviewed = set()
 
-# ВАШИ ОБРАБОТЧИКИ
+# ===== ВСПОМОГАТЕЛЬНЫЕ функции =====
+def load_users():
+    global users
+    if os.path.exists('users.json'):
+        try:
+            with open('users.json', 'r', encoding='utf-8') as f:
+                users = json.load(f)
+        except:
+            users = {}
+    else:
+        users = {}
+
+def save_users():
+    with open('users.json', 'w', encoding='utf-8') as f:
+        json.dump(users, f)
+
+def get_user_data(user_id):
+    user_id_str = str(user_id)
+    if user_id_str not in users:
+        users[user_id_str] = {'balance': 0, 'last_task_time': 0}
+        save_users()
+    return users[user_id_str]
+
+def add_balance(user_id, amount):
+    user_str_id = str(user_id)
+    if user_str_id not in users:
+        users[user_str_id] = {'balance': 0, 'last_task_time': 0}
+    users[user_str_id]['balance'] += amount
+    save_users()
+
+def can_do_task(user_id):
+    user_data = get_user_data(user_id)
+    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
+
+def get_time_left(user_id):
+    user_data = get_user_data(user_id)
+    time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
+    if time_left <= 0:
+        return "0"
+    hours = int(time_left // 3600)
+    minutes = int((time_left % 3600) // 60)
+    seconds = int(time_left % 60)
+    if hours > 0:
+        return f"{hours}ч {minutes}мин"
+    elif minutes > 0:
+        return f"{minutes}мин {seconds}сек"
+    else:
+        return f"{seconds}сек"
+
+async def check_sub(user_id):
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
+
+# ===== КЛАВИАТУРЫ =====
+def start_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎉 Друзья", callback_data="ref_link")],
+        [InlineKeyboardButton(text="✅ ДА", callback_data="yes")],
+        [InlineKeyboardButton(text="❌ НЕТ", callback_data="no")]
+    ])
+
+def after_yes_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 ПОДПИСАТЬСЯ НА КАНАЛ", callback_data="subscribe_first")]
+    ])
+
+def sub_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Подписаться", url=f"https://t.me/{CHANNEL_ID[1:]}")],
+        [InlineKeyboardButton(text="🔍 Я ПОДПИСАЛСЯ", callback_data="check_sub")]
+    ])
+
+def menu_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 ЗАДАНИЕ", callback_data="task")],
+        [InlineKeyboardButton(text="💰 БАЛАНС", callback_data="balance")],
+        [InlineKeyboardButton(text="💸 ВЫВОД", callback_data="withdraw_menu")],
+        [InlineKeyboardButton(text="📝 ОТЗЫВЫ", callback_data="reviews")],
+        [InlineKeyboardButton(text="❓ ПОМОЩЬ", callback_data="help")],
+        [InlineKeyboardButton(text="🎉 Друзья", callback_data="ref_link")]
+    ])
+
+def withdraw_menu_keyboard(user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💸 Вывести весь баланс ({get_user_data(user_id)['balance']:,})", callback_data="withdraw_all")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
+    ])
+
+def admin_screenshot_keyboard(user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"ok_{user_id}"),
+         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"no_{user_id}")]
+    ])
+
+def admin_withdraw_keyboard(user_id):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Купил", callback_data=f"bought_{user_id}"),
+         InlineKeyboardButton(text="❌ Не купил", callback_data=f"not_bought_{user_id}")]
+    ])
+
+# ===== ВАШИ ОБРАБОТЧИКИ =====
 @dp.message(Command("start"))
 async def start(message: Message):
     username = message.from_user.first_name
@@ -481,7 +547,7 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.clear()
 
-# ===== АДМИН КНОПКИ =====
+# ===== АДМИН КЛИКИ =====
 @dp.callback_query(F.data.startswith("ok_"))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -505,7 +571,6 @@ async def approve_screenshot(callback: CallbackQuery):
         log_success(f"✅ Уведомление отправлено пользователю")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление пользователю: {e}")
-    # Удаляем сообщение с фото у администратора
     await callback.message.delete()
     await callback.answer("Готово!")
 
@@ -529,7 +594,6 @@ async def reject_screenshot(callback: CallbackQuery):
         log_success(f"✅ Уведомление об отказе отправлено")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление об отказе: {e}")
-    # Удаляем сообщение с фото у администратора
     await callback.message.delete()
     await callback.answer("Готово!")
 
@@ -539,7 +603,7 @@ async def bought(callback: CallbackQuery):
         await callback.answer("Нет прав!", show_alert=True)
         return
     user_id = int(callback.data.split("_")[1])
-    if user_id in users:
+    if str(user_id) in users:
         old_balance = users[str(user_id)]['balance']
         users[str(user_id)]['balance'] = 0
         log_big_title(f"АДМИН: КУПЛЕНО")
@@ -585,7 +649,7 @@ async def not_bought(callback: CallbackQuery):
         )
         await callback.answer("Готово!")
 
-# ===== ОБРАБОТКА ВСЕХ ПРОСТЫХ СООБЩЕНИЙ =====
+# ===== ОБРАБОТКА ВСЕХ ПРОСТЫХ СОобщЕНИЙ =====
 @dp.message()
 async def handle_other_messages(message: Message):
     if message.text and message.text.startswith('/'):
@@ -606,6 +670,7 @@ async def remind_user_about_cooldown(user_id, chat_id):
 
 # ===== ЗАПУСК =====
 async def main():
+    load_users()  # Загружаем пользователей из файла при запуске
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║ 🚀 ТЕЛЕГРАМ БОТ ЗАПУЩЕН 🚀 ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
