@@ -7,7 +7,7 @@ from datetime import datetime
 from threading import Thread
 import requests
 
-# Версия: 20250228-150000  # GitHub Actions будет менять эту строку
+# Версия: 20250228-150000
 
 # ===== САМОПИНГЕР =====
 def ping_self():
@@ -15,7 +15,7 @@ def ping_self():
     while True:
         try:
             response = requests.get(render_url, timeout=10)
-            print(f"✅ Автопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
+            print(f"✅ Самопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
         except Exception as e:
             print(f"❌ Ошибка пинга: {e}")
         time.sleep(600)
@@ -684,7 +684,7 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.finish()
 
-# ===== ИСПРАВЛЕННЫЕ АДМИН ФУНКЦИИ =====
+# ===== АДМИН ФУНКЦИИ =====
 @dp.callback_query_handler(lambda c: c.data.startswith('ok_'))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -741,7 +741,6 @@ async def reject_screenshot(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer("Готово!")
 
-# ===== ИСПРАВЛЕННАЯ КНОПКА НЕ КУПИЛ =====
 @dp.callback_query_handler(lambda c: c.data.startswith('bought_'))
 async def bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
