@@ -95,8 +95,8 @@ def log_divider():
 def log_big_title(text):
     print(f"{Colors.BOLD}{Colors.PURPLE}▶▶▶ {current_time()} {text} ◀◀◀{Colors.END}")
 
+# Инициализация бота и диспетчера
 logging.basicConfig(level=logging.CRITICAL)
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -142,90 +142,7 @@ class States(StatesGroup):
 
 users_who_reviewed = set()
 
-def get_user_data(user_id: int):
-    if str(user_id) not in users:
-        users[str(user_id)] = {'balance': 0, 'last_task_time': 0}
-        save_users()
-    return users[str(user_id)]
-
-def add_balance(user_id: int, amount: int):
-    user_str_id = str(user_id)
-    users[user_str_id]['balance'] += amount
-    save_users()
-
-def can_do_task(user_id):
-    user_data = get_user_data(user_id)
-    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
-
-def get_time_left(user_id):
-    user_data = get_user_data(user_id)
-    time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
-    if time_left <= 0:
-        return "0"
-    hours = int(time_left // 3600)
-    minutes = int((time_left % 3600) // 60)
-    seconds = int(time_left % 60)
-    if hours > 0:
-        return f"{hours}ч {minutes}мин"
-    elif minutes > 0:
-        return f"{minutes}мин {seconds}сек"
-    else:
-        return f"{seconds}сек"
-
-async def check_sub(user_id):
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
-
-# ===== КЛАВИАТУРЫ =====
-def start_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ ДА", callback_data="yes")],
-        [InlineKeyboardButton(text="❌ НЕТ", callback_data="no")]
-    ])
-
-def after_yes_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 ПОДПИСАТЬСЯ НА КАНАЛ", callback_data="subscribe_first")]
-    ])
-
-def sub_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Подписаться", url=f"https://t.me/{CHANNEL_ID[1:]}")],
-        [InlineKeyboardButton(text="🔍 Я ПОДПИСАЛСЯ", callback_data="check_sub")]
-    ])
-
-def menu_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 ЗАДАНИЕ", callback_data="task")],
-        [InlineKeyboardButton(text="💰 БАЛАНС", callback_data="balance")],
-        [InlineKeyboardButton(text="💸 ВЫВОД", callback_data="withdraw_menu")],
-        [InlineKeyboardButton(text="📝 ОТЗЫВЫ", callback_data="reviews")],
-        [InlineKeyboardButton(text="❓ ПОМОЩЬ", callback_data="help")],
-        [InlineKeyboardButton(text="Друзья", callback_data="ref_link")]  # новая кнопка
-    ])
-
-def withdraw_menu_keyboard(user_id):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💸 Вывести весь баланс ({get_user_data(user_id)['balance']:,})", callback_data="withdraw_all")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
-    ])
-
-def admin_screenshot_keyboard(user_id):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"ok_{user_id}"),
-         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"no_{user_id}")]
-    ])
-
-def admin_withdraw_keyboard(user_id):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Купил", callback_data=f"bought_{user_id}"),
-         InlineKeyboardButton(text="❌ Не купил", callback_data=f"not_bought_{user_id}")]
-    ])
-
-# ===== ОБРАБОТЧИКИ =====
+# ВАШИ ОБРАБОТЧИКИ
 @dp.message(Command("start"))
 async def start(message: Message):
     username = message.from_user.first_name
@@ -313,7 +230,7 @@ async def reviews_button(callback: CallbackQuery, state: FSMContext):
     if user_id in users_who_reviewed:
         log_warning(f"⚠️ {username} УЖЕ ПИСАЛ ОТЗЫВ")
         await callback.answer(
-            "❌ Вы уже оставляли отзыв!\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
+            "❌ **Вы уже оставляли отзыв!**\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
             show_alert=True
         )
         return
@@ -436,7 +353,7 @@ async def handle_review(message: Message, state: FSMContext):
         )
     await state.clear()
 
-# ===== КЛИКИ В МЕНЮ =====
+# Обработчики кнопок меню
 @dp.callback_query(F.data == "balance")
 async def balance(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -564,7 +481,7 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.clear()
 
-# ===== АДМИН КОМАНДЫ =====
+# ===== АДМИН КНОПКИ =====
 @dp.callback_query(F.data.startswith("ok_"))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
