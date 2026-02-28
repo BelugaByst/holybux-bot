@@ -2,7 +2,7 @@ name: Auto Deploy to Keep Render Alive
 
 on:
   schedule:
-    - cron: '*/3 * * * *'
+    - cron: '*/3 * * * *'  # Каждые 3 минуты
   workflow_dispatch:
 
 jobs:
@@ -25,13 +25,13 @@ jobs:
           echo "👉 Новый смайлик: ${RANDOM_SMILEY}"
           
           # Меняем смайлик в самопинге
-          sed -i "s/[✨🔥⚡💫⭐🌟💥🚀🎯⚙️💎🔮🎪🎨🦊] Самопингер активен 24\/7/${RANDOM_SMILEY} Самопингер активен 24\/7/" bot.py || true
+          sed -i "s/^print(\".* Самопингер активен 24\/7\")/print(\"${RANDOM_SMILEY} Самопингер активен 24\/7\")/" bot.py || true
           
           # Меняем смайлик в версии
-          sed -i "s/# Версия:.*/# Версия: $(date +%Y%m%d-%H%M%S) ${RANDOM_SMILEY}/" bot.py || true
+          sed -i "s/^# Версия:.*/# Версия: $(date +%Y%m%d-%H%M%S) ${RANDOM_SMILEY}/" bot.py || true
           
           # Меняем смайлик в автопинге
-          sed -i "s/[✨🔥⚡💫⭐🌟💥🚀🎯⚙️💎🔮🎪🎨🦊] Автопинг:/${RANDOM_SMILEY} Автопинг:/" bot.py || true
+          sed -i "s/^print(\".* Автопинг:/print(\"${RANDOM_SMILEY} Автопинг:/" bot.py || true
 
       - name: Commit and push changes
         run: |
@@ -41,7 +41,6 @@ jobs:
           git diff --quiet && git diff --staged --quiet || git commit -m "🔄 Автообновление: $(date) ${RANDOM_SMILEY}"
           git push
 
-      # Принудительный деплой через Render API
       - name: Trigger Render Deploy
         run: |
           curl -X POST "https://api.render.com/deploy/srv-d6gvj895pdvs73d9t80?key=kLoo3CPqftM"
