@@ -1,0 +1,39 @@
+name: Auto Deploy to Keep Render Alive
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Каждые 5 минут!
+  workflow_dispatch:  # Можно запускать вручную
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version and smileys
+        run: |
+          # Обновляем версию
+          echo "LAST_UPDATE=$(date +%s)" > .version
+          echo "UPDATED_AT=$(date)" >> .version
+          echo "BUILD_NUMBER=${{ github.run_number }}" >> .version
+          
+          # Меняем смайлики в разных местах для гарантии
+          sed -i "s/🔥 Самопингер запущен!/🔥 Самопингер активен $(date +%H:%M)/" bot.py || true
+          sed -i "s/✅ Самопинг:/✅ Автопинг $(date +%H:%M):/" bot.py || true
+          
+          # Меняем версию в комментарии
+          sed -i "s/# Версия:.*/# Версия: $(date +%Y%m%d-%H%M%S)/" bot.py || true
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "Auto Deploy Bot"
+          git config --global user.email "bot@github.com"
+          git add .version bot.py
+          git diff --quiet && git diff --staged --quiet || git commit -m "🔄 Автообновление: $(date)"
+          git push
