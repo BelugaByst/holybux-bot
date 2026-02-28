@@ -7,10 +7,10 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher.filters import Command
 
 # ===== ВЕБ-СЕРВЕР =====
 from aiohttp import web
@@ -155,7 +155,8 @@ def log_big_title(text):
 # ===== ИНИЦИАЛИЗАЦИЯ =====
 logging.basicConfig(level=logging.CRITICAL)
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 # ===== КЛАВИАТУРЫ =====
 def start_keyboard():
@@ -205,7 +206,7 @@ def admin_withdraw_keyboard(user_id):
     ])
 
 # ===== ОБРАБОТЧИКИ =====
-@dp.message(Command("start"))
+@dp.message_handler(commands=['start'])
 async def start(message: Message):
     username = message.from_user.first_name
     log_divider()
@@ -216,14 +217,14 @@ async def start(message: Message):
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
-@dp.callback_query(types.F.data == "no")
+@dp.callback_query_handler(lambda c: c.data == 'no')
 async def no(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "❌ НАЖАЛ НЕТ")
     await callback.message.edit_text("😕 Окей, если не хочешь, то как хочешь)\nЕсли передумаешь, пиши /start")
     await callback.answer()
 
-@dp.callback_query(types.F.data == "yes")
+@dp.callback_query_handler(lambda c: c.data == 'yes')
 async def yes(callback: CallbackQuery):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
@@ -242,7 +243,7 @@ async def yes(callback: CallbackQuery):
         )
     await callback.answer()
 
-@dp.callback_query(types.F.data == "subscribe_first")
+@dp.callback_query_handler(lambda c: c.data == 'subscribe_first')
 async def subscribe_first(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "📢 НАЖАЛ ПОДПИСАТЬСЯ")
@@ -256,7 +257,7 @@ async def subscribe_first(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(types.F.data == "check_sub")
+@dp.callback_query_handler(lambda c: c.data == 'check_sub')
 async def check_subscribe(callback: CallbackQuery):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
@@ -284,7 +285,7 @@ async def check_subscribe(callback: CallbackQuery):
             show_alert=True
         )
 
-@dp.callback_query(types.F.data == "reviews")
+@dp.callback_query_handler(lambda c: c.data == 'reviews')
 async def reviews_button(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
@@ -305,7 +306,7 @@ async def reviews_button(callback: CallbackQuery, state: FSMContext):
     await state.set_state(States.waiting_review)
     await callback.answer()
 
-@dp.callback_query(types.F.data == "help")
+@dp.callback_query_handler(lambda c: c.data == 'help')
 async def help_button(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "❓ ОТКРЫЛ ПОМОЩЬ")
@@ -319,7 +320,7 @@ async def help_button(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(types.F.data == "task")
+@dp.callback_query_handler(lambda c: c.data == 'task')
 async def task(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
@@ -344,7 +345,7 @@ async def task(callback: CallbackQuery, state: FSMContext):
     await state.set_state(States.waiting_photo)
     await callback.answer()
 
-@dp.message(States.waiting_photo, types.F.photo)
+@dp.message_handler(content_types=['photo'], state=States.waiting_photo)
 async def get_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -365,15 +366,15 @@ async def get_photo(message: Message, state: FSMContext):
     except Exception as e:
         log_error(f"❌ Ошибка отправки админу: {e}")
         await message.answer("⚠️ Ошибка при отправке админу")
-    await state.clear()
+    await state.finish()
 
-@dp.message(States.waiting_photo)
+@dp.message_handler(state=States.waiting_photo)
 async def not_photo(message: Message):
     username = message.from_user.first_name
     log_warning(f"⚠️ {username} ОТПРАВИЛ НЕ ФОТО")
     await message.answer("❌ **Отправь фото, а не текст!**\n\n📸 Сделай скриншот задания и отправь его как фото.", parse_mode="Markdown")
 
-@dp.message(States.waiting_review)
+@dp.message_handler(state=States.waiting_review)
 async def handle_review(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -384,7 +385,7 @@ async def handle_review(message: Message, state: FSMContext):
             "❌ **Вы уже оставляли отзыв!**\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
             parse_mode="Markdown"
         )
-        await state.clear()
+        await state.finish()
         return
     log_review(f"📝 НОВЫЙ ОТЗЫВ от {username}: {review_text[:50]}...")
     try:
@@ -414,9 +415,9 @@ async def handle_review(message: Message, state: FSMContext):
             "Попробуйте позже или напишите админу @emycac",
             parse_mode="Markdown"
         )
-    await state.clear()
+    await state.finish()
 
-@dp.callback_query(types.F.data == "balance")
+@dp.callback_query_handler(lambda c: c.data == 'balance')
 async def balance(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
@@ -440,7 +441,7 @@ async def balance(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(types.F.data == "withdraw_menu")
+@dp.callback_query_handler(lambda c: c.data == 'withdraw_menu')
 async def withdraw_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
@@ -460,7 +461,7 @@ async def withdraw_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(types.F.data == "back_to_menu")
+@dp.callback_query_handler(lambda c: c.data == 'back_to_menu')
 async def back_to_menu(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "🔙 ВЕРНУЛСЯ В ГЛАВНОЕ МЕНЮ")
@@ -471,7 +472,7 @@ async def back_to_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(types.F.data == "withdraw_all")
+@dp.callback_query_handler(lambda c: c.data == 'withdraw_all')
 async def withdraw_all(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
@@ -494,7 +495,7 @@ async def withdraw_all(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(States.waiting_nickname)
 
-@dp.message(States.waiting_nickname)
+@dp.message_handler(state=States.waiting_nickname)
 async def handle_nickname(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -540,9 +541,9 @@ async def handle_nickname(message: Message, state: FSMContext):
     except Exception as e:
         log_error(f"❌ Ошибка отправки админу: {e}")
         await message.answer("⚠️ Ошибка при отправке запроса админу")
-    await state.clear()
+    await state.finish()
 
-@dp.callback_query(types.F.data.startswith("ok_"))
+@dp.callback_query_handler(lambda c: c.data.startswith('ok_'))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         log_warning(f"⚠️ Попытка подтверждения не админом: {callback.from_user.first_name}")
@@ -569,7 +570,7 @@ async def approve_screenshot(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer("Готово!")
 
-@dp.callback_query(types.F.data.startswith("no_"))
+@dp.callback_query_handler(lambda c: c.data.startswith('no_'))
 async def reject_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         log_warning(f"⚠️ Попытка отклонения не админом: {callback.from_user.first_name}")
@@ -592,7 +593,7 @@ async def reject_screenshot(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer("Готово!")
 
-@dp.callback_query(types.F.data.startswith("bought_"))
+@dp.callback_query_handler(lambda c: c.data.startswith('bought_'))
 async def bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет прав!", show_alert=True)
@@ -622,7 +623,7 @@ async def bought(callback: CallbackQuery):
         )
         await callback.answer("Готово!")
 
-@dp.callback_query(types.F.data.startswith("not_bought_"))
+@dp.callback_query_handler(lambda c: c.data.startswith('not_bought_'))
 async def not_bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет прав!", show_alert=True)
@@ -645,7 +646,7 @@ async def not_bought(callback: CallbackQuery):
     )
     await callback.answer("Готово!")
 
-@dp.message()
+@dp.message_handler()
 async def handle_other_messages(message: Message):
     if message.text and message.text.startswith('/'):
         return
@@ -678,7 +679,7 @@ async def start_bot():
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
     print("")
-    await dp.start_polling(bot)
+    await dp.start_polling()
 
 # ===== ТОЧКА ВХОДА =====
 if __name__ == "__main__":
