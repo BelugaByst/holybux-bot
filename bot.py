@@ -811,14 +811,18 @@ async def start_bot():
 # ===== ТОЧКА ВХОДА =====
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
-
+    
+    # Запускаем веб-сервер в отдельном процессе (не в потоке!)
+    from multiprocessing import Process
+    
     def run_web():
         web.run_app(app, host='0.0.0.0', port=port)
-
-    web_thread = Thread(target=run_web, daemon=True)
-    web_thread.start()
-    print(f"Веб-сервер запущен на порту {port}")
-
+    
+    web_process = Process(target=run_web, daemon=True)
+    web_process.start()
+    print(f"🌐 Веб-сервер запущен на порту {port}")
+    
+    # Запускаем бота в главном потоке
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
@@ -826,11 +830,11 @@ if __name__ == "__main__":
         save_users()
         save_referrals()
         save_screenshots()
+        web_process.terminate()
         print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
     except Exception as e:
         log_error(f"❌ Критическая ошибка: {e}")
         save_users()
         save_referrals()
         save_screenshots()
-
-
+        web_process.terminate()
