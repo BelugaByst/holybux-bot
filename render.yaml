@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: holybux-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
@@ -14,3 +14,4 @@ services:
         value: "@HolyBux"
       - key: REVIEW_CHANNEL_ID
         value: "@HolyBuxOtziv"
+
