@@ -704,10 +704,16 @@ async def main():
     print("")
     await dp.start_polling(bot)
 
+    # В конце работы выводим сообщение "Goodbye"
+    print(f"{Colors.BOLD}{Colors.PURPLE}══════════════════════════════════════════════════════════════{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.PURPLE}🚪 Бот остановлен. До свидания! 🚪{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.PURPLE}══════════════════════════════════════════════════════════════{Colors.END}")
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         log_warning("⏹ Бот остановлен пользователем")
+        print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
     except Exception as e:
         log_error(f"❌ Критическая ошибка: {e}")
