@@ -5,9 +5,9 @@ import os
 import json
 from datetime import datetime
 
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -37,8 +37,8 @@ users = {}
 withdraw_requests = {}
 users_who_reviewed = set()
 
-# ===== ВЕБ-СЕРВЕР (ЭТО ВАЖНО ДЛЯ GUNICORN) =====
-app = web.Application()  # <-- ЭТО НУЖНО ДЛЯ GUNICORN!
+# ===== ВЕБ-СЕРВЕР =====
+app = web.Application()
 
 async def handle_health(request):
     return web.Response(text="Bot is running!")
@@ -140,6 +140,9 @@ def log_action(text):
 def log_user_action(username, action):
     print(f"{Colors.CYAN}[👤 {current_time()}] {Colors.BOLD}{username}{Colors.END} {Colors.WHITE}{action}{Colors.END}")
 
+def log_review(text):
+    print(f"{Colors.PINK}[📝 {current_time()}] {text}{Colors.END}")
+
 def log_system(text):
     print(f"{Colors.ORANGE}[🔧 {current_time()}] {text}{Colors.END}")
 
@@ -213,14 +216,14 @@ async def start(message: Message):
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
-@dp.callback_query(F.data == "no")
+@dp.callback_query(types.F.data == "no")
 async def no(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "❌ НАЖАЛ НЕТ")
     await callback.message.edit_text("😕 Окей, если не хочешь, то как хочешь)\nЕсли передумаешь, пиши /start")
     await callback.answer()
 
-@dp.callback_query(F.data == "yes")
+@dp.callback_query(types.F.data == "yes")
 async def yes(callback: CallbackQuery):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
@@ -239,7 +242,7 @@ async def yes(callback: CallbackQuery):
         )
     await callback.answer()
 
-@dp.callback_query(F.data == "subscribe_first")
+@dp.callback_query(types.F.data == "subscribe_first")
 async def subscribe_first(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "📢 НАЖАЛ ПОДПИСАТЬСЯ")
@@ -253,7 +256,7 @@ async def subscribe_first(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "check_sub")
+@dp.callback_query(types.F.data == "check_sub")
 async def check_subscribe(callback: CallbackQuery):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
@@ -281,7 +284,7 @@ async def check_subscribe(callback: CallbackQuery):
             show_alert=True
         )
 
-@dp.callback_query(F.data == "reviews")
+@dp.callback_query(types.F.data == "reviews")
 async def reviews_button(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
@@ -302,21 +305,21 @@ async def reviews_button(callback: CallbackQuery, state: FSMContext):
     await state.set_state(States.waiting_review)
     await callback.answer()
 
-@dp.callback_query(F.data == "help")
+@dp.callback_query(types.F.data == "help")
 async def help_button(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "❓ ОТКРЫЛ ПОМОЩЬ")
     await callback.message.answer(
         f"❓ **У ТЕБЯ ЕСТЬ ПРОБЛЕМА?**\n\n"
         f"📝 **Пиши сюда:** {ADMIN_USERNAME}\n"
-        f"📝 **Наш ТГК:** {CHANNEL_NAME}\n"
+        f"📢 **Наш ТГК:** {CHANNEL_NAME}\n"
         f"📝 **Канал с отзывами:** {REVIEW_CHANNEL_ID}\n\n"
         f"⚡ **Админ ответит в ближайшее время!**",
         parse_mode="Markdown"
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "task")
+@dp.callback_query(types.F.data == "task")
 async def task(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
@@ -341,7 +344,7 @@ async def task(callback: CallbackQuery, state: FSMContext):
     await state.set_state(States.waiting_photo)
     await callback.answer()
 
-@dp.message(States.waiting_photo, F.photo)
+@dp.message(States.waiting_photo, types.F.photo)
 async def get_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
@@ -413,7 +416,7 @@ async def handle_review(message: Message, state: FSMContext):
         )
     await state.clear()
 
-@dp.callback_query(F.data == "balance")
+@dp.callback_query(types.F.data == "balance")
 async def balance(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
@@ -437,7 +440,7 @@ async def balance(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "withdraw_menu")
+@dp.callback_query(types.F.data == "withdraw_menu")
 async def withdraw_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
@@ -457,7 +460,7 @@ async def withdraw_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "back_to_menu")
+@dp.callback_query(types.F.data == "back_to_menu")
 async def back_to_menu(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "🔙 ВЕРНУЛСЯ В ГЛАВНОЕ МЕНЮ")
@@ -468,7 +471,7 @@ async def back_to_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "withdraw_all")
+@dp.callback_query(types.F.data == "withdraw_all")
 async def withdraw_all(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
@@ -539,7 +542,7 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.clear()
 
-@dp.callback_query(F.data.startswith("ok_"))
+@dp.callback_query(types.F.data.startswith("ok_"))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         log_warning(f"⚠️ Попытка подтверждения не админом: {callback.from_user.first_name}")
@@ -566,7 +569,7 @@ async def approve_screenshot(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer("Готово!")
 
-@dp.callback_query(F.data.startswith("no_"))
+@dp.callback_query(types.F.data.startswith("no_"))
 async def reject_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         log_warning(f"⚠️ Попытка отклонения не админом: {callback.from_user.first_name}")
@@ -589,7 +592,7 @@ async def reject_screenshot(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer("Готово!")
 
-@dp.callback_query(F.data.startswith("bought_"))
+@dp.callback_query(types.F.data.startswith("bought_"))
 async def bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет прав!", show_alert=True)
@@ -619,7 +622,7 @@ async def bought(callback: CallbackQuery):
         )
         await callback.answer("Готово!")
 
-@dp.callback_query(F.data.startswith("not_bought_"))
+@dp.callback_query(types.F.data.startswith("not_bought_"))
 async def not_bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет прав!", show_alert=True)
@@ -660,7 +663,6 @@ async def remind_user_about_cooldown(user_id, chat_id):
             log_error(f"Ошибка при отправке напоминания: {e}")
 
 async def start_bot():
-    """Запуск бота (отдельно от веб-сервера)"""
     load_users()
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
@@ -676,26 +678,13 @@ async def start_bot():
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
     print("")
-    
-    # Запускаем бота
     await dp.start_polling(bot)
 
-# ===== ТОЧКА ВХОДА ДЛЯ GUNICORN =====
+# ===== ТОЧКА ВХОДА =====
 if __name__ == "__main__":
-    # Запускаем бота в фоне
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(start_bot())
     
-    # Запускаем веб-сервер (Gunicorn сам запустит app)
-    # Но нам нужно держать loop активным
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        log_warning("⏹ Бот остановлен пользователем")
-        save_users()
-        print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
-    except Exception as e:
-        log_error(f"❌ Критическая ошибка: {e}")
-        save_users()
-
+    port = int(os.environ.get('PORT', 10000))
+    web.run_app(app, host='0.0.0.0', port=port)
