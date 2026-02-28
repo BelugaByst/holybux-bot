@@ -7,7 +7,7 @@ from datetime import datetime
 from threading import Thread
 import requests
 
-# Версия: 20260228-175622
+# Версия: 20250228-150000 🔥  # GitHub Actions будет менять смайлик
 
 # ===== САМОПИНГЕР =====
 def ping_self():
@@ -15,7 +15,7 @@ def ping_self():
     while True:
         try:
             response = requests.get(render_url, timeout=10)
-            print(f"✅ Автопинг 15:45: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
+            print(f"🔥 Автопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
         except Exception as e:
             print(f"❌ Ошибка пинга: {e}")
         time.sleep(600)
@@ -857,3 +857,4 @@ if __name__ == "__main__":
         save_referrals()
         save_screenshots()
         web_process.terminate()
+
