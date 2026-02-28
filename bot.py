@@ -38,6 +38,7 @@ users = {}
 withdraw_requests = {}
 users_who_reviewed = set()
 referrals = {}
+user_screenshots = {}  # Для отслеживания повторных скриншотов
 
 # ===== ВЕБ-СЕРВЕР =====
 app = web.Application()
@@ -78,6 +79,21 @@ def load_referrals():
 def save_referrals():
     with open('referrals.json', 'w', encoding='utf-8') as f:
         json.dump(referrals, f)
+
+def load_screenshots():
+    global user_screenshots
+    if os.path.exists('screenshots.json'):
+        try:
+            with open('screenshots.json', 'r', encoding='utf-8') as f:
+                user_screenshots = json.load(f)
+        except:
+            user_screenshots = {}
+    else:
+        user_screenshots = {}
+
+def save_screenshots():
+    with open('screenshots.json', 'w', encoding='utf-8') as f:
+        json.dump(user_screenshots, f)
 
 def get_user_data(user_id):
     user_id_str = str(user_id)
@@ -261,21 +277,17 @@ async def start(message: Message):
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
-# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ (СТРОКА 214) =====
+# ===== РЕФЕРАЛЬНАЯ ССЫЛКА =====
 @dp.callback_query_handler(lambda c: c.data == 'ref_link')
 async def ref_link(callback: CallbackQuery):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
     log_user_action(username, "🎉 НАЖАЛ ДРУЗЬЯ")
     
-    # Получаем username бота
     bot_info = await bot.get_me()
     bot_username = bot_info.username
-    
-    # Реферальная ссылка
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
-    # Считаем количество рефералов
     referral_count = len(referrals.get(str(user_id), []))
     
     await callback.message.answer(
@@ -394,45 +406,89 @@ async def help_button(callback: CallbackQuery):
     )
     await callback.answer()
 
+# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗАДАНИЯ =====
 @dp.callback_query_handler(lambda c: c.data == 'task')
 async def task(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
+    username = callback.from_user.first_name
     chat_id = callback.message.chat.id
+    
     if not can_do_task(user_id):
-        await remind_user_about_cooldown(user_id, chat_id)
         time_left = get_time_left(user_id)
         await callback.answer(
-            f"⏳ Подожди {time_left} до следующего задания!", show_alert=True
+            f"⏳ Подожди {time_left} до следующего задания!", 
+            show_alert=True
         )
         return
-    log_user_action(callback.from_user.first_name, "📋 ПЫТАЕТСЯ ВЗЯТЬ ЗАДАНИЕ")
-    log_success(f"✅ {callback.from_user.first_name} ВЗЯЛ ЗАДАНИЕ")
+    
+    log_user_action(username, "📋 ВЗЯЛ ЗАДАНИЕ")
+    log_success(f"✅ {username} ВЗЯЛ ЗАДАНИЕ")
+    
     await callback.message.edit_text(
         "📋 **Твоё задание:**\n\n"
         "1️⃣ Зайди на сервер\n"
         "2️⃣ Напиши в чат: !Кому нужна валюта заходим в тг бота @HolyBuxBot_Bot\n"
         "3️⃣ Сделай скриншот\n"
         "4️⃣ Отправь скриншот сюда\n\n"
-        f"💰 Награда: {REWARD_AMOUNT:,} монет"
+        f"💰 Награда: {REWARD_AMOUNT:,} монет\n\n"
+        "⚠️ **ВНИМАНИЕ!**\n"
+        "❌ НЕ ВЗДУМАЙ ХИТРИТЬ!\n"
+        "❌ ЕСЛИ ТЫ УЖЕ ДЕЛАЛ ЗАДАНИЕ - ДЕЛАЙ ЗАНОВО!\n"
+        "❌ КИДАЙ НОВЫЙ СКРИНШОТ!\n\n"
+        "🚫 **ЕСЛИ АДМИН ЗАМЕТИТ ПОВТОРНЫЙ СКРИНШОТ/ФОТО - ТЫ ПОЛУЧИШЬ БАН НАВСЕГДА!**"
     )
     await callback.message.answer("📸 **Отправь скриншот:**", parse_mode="Markdown")
     await state.set_state(States.waiting_photo)
     await callback.answer()
 
+# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОЛУЧЕНИЯ ФОТО =====
 @dp.message_handler(content_types=['photo'], state=States.waiting_photo)
 async def get_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.first_name
     name = message.from_user.full_name
+    photo_id = message.photo[-1].file_id
+    
     log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
-    log_info(f"🆔 ID фото: {message.photo[-1].file_id}")
-    photo = message.photo[-1]
+    log_info(f"🆔 ID фото: {photo_id}")
+    
+    # Проверяем, не отправлял ли пользователь этот скриншот раньше
+    user_screenshots[str(user_id)] = user_screenshots.get(str(user_id), [])
+    
+    if photo_id in user_screenshots[str(user_id)]:
+        log_warning(f"⚠️ {username} ОТПРАВИЛ ПОВТОРНЫЙ СКРИНШОТ!")
+        await message.answer(
+            "❌ **ОБНАРУЖЕН ПОВТОРНЫЙ СКРИНШОТ!**\n\n"
+            "🚫 Ты пытаешься отправить тот же самый скриншот!\n"
+            "⚠️ Администратор уже получил уведомление о нарушении.\n\n"
+            "📋 **Сделай новое задание и отправь СВЕЖИЙ скриншот!**"
+        )
+        # Отправляем уведомление админу о попытке обмана
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🚨 **ПОПЫТКА ОБМАНА!**\n\n"
+                f"👤 Пользователь: {name}\n"
+                f"🆔 ID: {user_id}\n"
+                f"📱 Username: @{message.from_user.username or 'Нет'}\n\n"
+                f"❌ Отправил ПОВТОРНЫЙ скриншот!"
+            )
+        except:
+            pass
+        await state.finish()
+        return
+    
+    # Сохраняем ID скриншота
+    user_screenshots[str(user_id)].append(photo_id)
+    save_screenshots()
+    
     await message.answer("✅ **Скриншот отправлен на проверку!**", parse_mode="Markdown")
     log_success(f"✅ Скриншот от {username} отправлен админу")
+    
     try:
         await bot.send_photo(
             chat_id=ADMIN_ID,
-            photo=photo.file_id,
+            photo=photo_id,
             caption=f"Новый скриншот от {name} (ID: {user_id})",
             reply_markup=admin_screenshot_keyboard(user_id)
         )
@@ -440,6 +496,7 @@ async def get_photo(message: Message, state: FSMContext):
     except Exception as e:
         log_error(f"❌ Ошибка отправки админу: {e}")
         await message.answer("⚠️ Ошибка при отправке админу")
+    
     await state.finish()
 
 @dp.message_handler(state=States.waiting_photo)
@@ -491,26 +548,31 @@ async def handle_review(message: Message, state: FSMContext):
         )
     await state.finish()
 
+# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ БАЛАНСА =====
 @dp.callback_query_handler(lambda c: c.data == 'balance')
 async def balance(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
     user_data = get_user_data(user_id)
-    log_user_action(username, f"💰 ПРОВЕРИЛ БАЛАНС: {user_data['balance']:,} монет")
-    if not can_do_task(user_id):
-        await remind_user_about_cooldown(user_id, callback.message.chat.id)
-        time_left = get_time_left(user_id)
-        await callback.answer(
-            f"⏳ Подожди {time_left} до следующего задания!", show_alert=True
-        )
-        return
+    
+    log_user_action(username, f"💰 ПРОВЕРИЛ БАЛАНС")
+    
     if can_do_task(user_id):
         task_status = "✅ Доступно"
     else:
         task_status = f"⏳ Через {get_time_left(user_id)}"
+    
+    # Получаем количество рефералов
+    referral_count = len(referrals.get(str(user_id), []))
+    
     await callback.message.answer(
-        f"💰 **Твой баланс:** {user_data['balance']:,} монет\n\n"
-        f"📊 **Статус задания:** {task_status}",
+        f"💰 **ТВОЙ БАЛАНС**\n\n"
+        f"💎 **Монет:** {user_data['balance']:,}\n"
+        f"📊 **Задание:** {task_status}\n"
+        f"👥 **Рефералов:** {referral_count}\n"
+        f"🎁 **Бонус за рефералов:** {referral_count * REFERRAL_BONUS:,}\n\n"
+        f"📢 **Канал:** {CHANNEL_ID}\n"
+        f"📝 **Отзывы:** {REVIEW_CHANNEL_ID}",
         parse_mode="Markdown"
     )
     await callback.answer()
@@ -740,6 +802,7 @@ async def remind_user_about_cooldown(user_id, chat_id):
 async def start_bot():
     load_users()
     load_referrals()
+    load_screenshots()
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
@@ -761,22 +824,22 @@ async def start_bot():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
-    # Запускаем веб-сервер в отдельном потоке
     def run_web():
         web.run_app(app, host='0.0.0.0', port=port)
     
     web_thread = Thread(target=run_web, daemon=True)
     web_thread.start()
     
-    # Запускаем бота в главном потоке
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
         log_warning("⏹ Бот остановлен пользователем")
         save_users()
         save_referrals()
+        save_screenshots()
         print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
     except Exception as e:
         log_error(f"❌ Критическая ошибка: {e}")
         save_users()
         save_referrals()
+        save_screenshots()
