@@ -7,7 +7,7 @@ from datetime import datetime
 from threading import Thread
 import requests
 
-# Версия: 20260228-165309
+# Версия: 20260228-174127
 
 # ===== САМОПИНГЕР =====
 def ping_self():
