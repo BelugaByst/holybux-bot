@@ -3,6 +3,7 @@ import logging
 import time
 import os
 import threading
+import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -19,7 +20,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/html')
         self.end_headers()
         self.wfile.write(b'Bot is running!')
-
     def log_message(self, format, *args):
         pass
 
@@ -29,21 +29,22 @@ def run_webserver():
     print(f"🌐 Веб-сервер для Render запущен на порту {port}")
     server.serve_forever()
 
+# Запускаем веб-сервер в отдельном потоке
 webserver_thread = threading.Thread(target=run_webserver, daemon=True)
 webserver_thread.start()
-# =================================
 
+# =================================
 # ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHANNEL_ID = "@HolyBux"
 REVIEW_CHANNEL_ID = "@HolyBuxOtziv"
 ADMIN_ID = 8009278482
 ADMIN_USERNAME = "@emycac"
-CHANNEL_NAME = "HolyBux"
+CHANNEL_NAME = "HolyTime"
 REWARD_AMOUNT = 3000000
 COOLDOWN_SECONDS = 3600
-# =====================
 
+# =====================
 # 🌈 КРАСИВЫЕ ЦВЕТА ДЛЯ КОНСОЛИ
 class Colors:
     GREEN = '\033[92m'
@@ -99,27 +100,51 @@ logging.basicConfig(level=logging.CRITICAL)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+# ===== ФУНКЦИИ ДЛЯ СОХРАНЕНИЯ И ЗАГРУЗКИ ДАННЫХ =====
+DATA_FILE = 'users_data.json'
+users = {}
+
+def load_users():
+    global users
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                users = json.load(f)
+        except:
+            users = {}
+    else:
+        users = {}
+
+def save_users():
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(users, f)
+
+# Загружаем данные при старте
+load_users()
+
+# ===== КЛАССЫ СОСТОЯНИЙ =====
 class States(StatesGroup):
     waiting_photo = State()
     waiting_nickname = State()
     waiting_review = State()
 
-users = {}
-withdraw_requests = {}
 users_who_reviewed = set()
 
 def get_user_data(user_id: int):
-    if user_id not in users:
-        users[user_id] = {'balance': 0, 'last_task_time': 0}
-    return users[user_id]
+    if str(user_id) not in users:
+        users[str(user_id)] = {'balance': 0, 'last_task_time': 0}
+        save_users()
+    return users[str(user_id)]
 
 def add_balance(user_id: int, amount: int):
-    users[user_id]['balance'] += amount
+    user_str_id = str(user_id)
+    users[user_str_id]['balance'] += amount
+    save_users()
 
 def can_do_task(user_id: int) -> bool:
     user_data = get_user_data(user_id)
-    current_time_sec = time.time()
-    time_passed = current_time_sec - user_data['last_task_time']
+    current_time = time.time()
+    time_passed = current_time - user_data['last_task_time']
     return time_passed >= COOLDOWN_SECONDS
 
 def get_time_left(user_id: int) -> str:
@@ -144,7 +169,7 @@ async def check_sub(user_id):
     except:
         return False
 
-# ============= КЛАВИАТУРЫ =============
+# ===== КЛАВИАТУРЫ =====
 def start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ ДА", callback_data="yes")],
@@ -186,13 +211,11 @@ def admin_screenshot_keyboard(user_id: int):
 
 def admin_withdraw_keyboard(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Купил", callback_data=f"bought_{user_id}"),
-            InlineKeyboardButton(text="❌ Не купил", callback_data=f"not_bought_{user_id}")
-        ]
+        [InlineKeyboardButton(text="✅ Купил", callback_data=f"bought_{user_id}"),
+         InlineKeyboardButton(text="❌ Не купил", callback_data=f"not_bought_{user_id}")]
     ])
 
-# ============= ОБРАБОТЧИКИ =============
+# ===== ОБРАБОТЧИКИ =====
 @dp.message(Command("start"))
 async def start(message: Message):
     username = message.from_user.first_name
@@ -204,42 +227,449 @@ async def start(message: Message):
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
+@dp.callback_query(F.data == "no")
+async def no(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    log_user_action(username, "❌ НАЖАЛ НЕТ")
+    await callback.message.edit_text("😕 Окей, если не хочешь, то как хочешь)\nЕсли передумаешь, пиши /start")
+    await callback.answer()
+
+@dp.callback_query(F.data == "yes")
+async def yes(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    log_user_action(username, "✅ НАЖАЛ ДА")
+    if await check_sub(user_id):
+        log_success(f"✅ {username} УЖЕ ПОДПИСАН НА КАНАЛ")
+        await callback.message.delete()
+        await callback.message.answer("✅ **Ты уже подписан! Выбирай что нужно:**", reply_markup=menu_keyboard(), parse_mode="Markdown")
+    else:
+        log_warning(f"⚠️ {username} НЕ ПОДПИСАН - показываем кнопку подписки")
+        await callback.message.edit_text(
+            f"🔒 **Чтобы получать валюту, подпишись на канал {CHANNEL_ID}**\n\n"
+            f"Нажми кнопку ниже чтобы подписаться 👇",
+            reply_markup=after_yes_keyboard(),
+            parse_mode="Markdown"
+        )
+    await callback.answer()
+
+@dp.callback_query(F.data == "subscribe_first")
+async def subscribe_first(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    log_user_action(username, "📢 НАЖАЛ ПОДПИСАТЬСЯ")
+    await callback.message.edit_text(
+        f"🔒 **Подпишись на канал {CHANNEL_ID}**\n\n"
+        "1️⃣ Нажми кнопку **'Подписаться'**\n"
+        "2️⃣ Вернись сюда и нажми **'Я ПОДПИСАЛСЯ'**\n\n"
+        "👇 **Кнопки ниже:**",
+        reply_markup=sub_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "check_sub")
+async def check_subscribe(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    log_user_action(username, "🔍 ПРОВЕРЯЕТ ПОДПИСКУ")
+    if await check_sub(user_id):
+        log_success(f"✅ {username} ПОДТВЕРДИЛ ПОДПИСКУ - ПЕРЕХОД В МЕНЮ")
+        await callback.message.delete()
+        await callback.message.answer(
+            "✅ **Подписка подтверждена! Добро пожаловать!**\n\n"
+            "📋 **ЗАДАНИЕ** - получить задание\n"
+            "💰 **БАЛАНС** - проверить монеты\n"
+            "💸 **ВЫВОД** - вывести средства\n"
+            "📝 **ОТЗЫВЫ** - оставить отзыв\n"
+            "❓ **ПОМОЩЬ** - помощь",
+            reply_markup=menu_keyboard(),
+            parse_mode="Markdown"
+        )
+    else:
+        log_warning(f"⚠️ {username} ВСЕ ЕЩЕ НЕ ПОДПИСАН")
+        await callback.answer(
+            "❌ Ты еще не подписался!\n\n"
+            "1. Нажми кнопку 'Подписаться'\n"
+            "2. Подпишись на канал\n"
+            "3. Вернись и нажми 'Я ПОДПИСАЛСЯ'",
+            show_alert=True
+        )
+
+@dp.callback_query(F.data == "reviews")
+async def reviews_button(callback: CallbackQuery, state: FSMContext):
+    username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    log_user_action(username, "📝 НАЖАЛ ОТЗЫВЫ")
+    if user_id in users_who_reviewed:
+        log_warning(f"⚠️ {username} УЖЕ ПИСАЛ ОТЗЫВ")
+        await callback.answer(
+            "❌ Вы уже оставляли отзыв!\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
+            show_alert=True
+        )
+        return
+    await callback.message.answer(
+        "📝 **Напишите ваш отзыв о нашем проекте**\n\n"
+        "✍️ Просто отправьте текст сообщением\n\n"
+        "📢 Отзыв будет опубликован в канале @HolyBuxOtziv",
+        parse_mode="Markdown"
+    )
+    await state.set_state(States.waiting_review)
+    await callback.answer()
+
 @dp.callback_query(F.data == "help")
 async def help_button(callback: CallbackQuery):
     username = callback.from_user.first_name
     log_user_action(username, "❓ ОТКРЫЛ ПОМОЩЬ")
-    
     await callback.message.answer(
         f"❓ **У ТЕБЯ ЕСТЬ ПРОБЛЕМА?**\n\n"
         f"📝 **Пиши сюда:** {ADMIN_USERNAME}\n"
-        f"📢 **Наш ТГК:** {CHANNEL_ID}\n"
+        f"📢 **Наш ТГК:** {CHANNEL_NAME}\n"
         f"📝 **Канал с отзывами:** {REVIEW_CHANNEL_ID}\n\n"
         f"⚡ **Админ ответит в ближайшее время!**",
         parse_mode="Markdown"
     )
     await callback.answer()
 
-# === Остальной код без изменений ===
+@dp.callback_query(F.data == "task")
+async def task(callback: CallbackQuery, state: FSMContext):
+    username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    log_user_action(username, "📋 ПЫТАЕТСЯ ВЗЯТЬ ЗАДАНИЕ")
+    if not can_do_task(user_id):
+        time_left = get_time_left(user_id)
+        log_warning(f"⚠️ {username} НЕ МОЖЕТ ВЗЯТЬ ЗАДАНИЕ. Осталось: {time_left}")
+        await callback.answer(
+            f"⏳ Подожди {time_left} до следующего задания!", show_alert=True
+        )
+        return
+    log_success(f"✅ {username} ВЗЯЛ ЗАДАНИЕ")
+    await callback.message.edit_text(
+        "📋 **Твоё задание:**\n\n"
+        "1️⃣ Зайди на сервер\n"
+        "2️⃣ Напиши в чат: !Кому нужна валюта заходим в тг бота @HolyBuxBot_Bot\n"
+        "3️⃣ Сделай скриншот\n"
+        "4️⃣ Отправь скриншот сюда\n\n"
+        f"💰 Награда: {REWARD_AMOUNT:,} монет"
+    )
+    await callback.message.answer("📸 **Отправь скриншот:**", parse_mode="Markdown")
+    await state.set_state(States.waiting_photo)
+    await callback.answer()
 
-# Для полной работоспособности оставьте все обработчики и функции из твоего предыдущего кода,
-# включая баланс, задания, вывод и админские кнопки.
+# ===== ВАЖНО: ОБРАБОТЧИКИ ДЛЯ ФОТО =====
+@dp.message(States.waiting_photo, F.photo)
+async def get_photo(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.first_name
+    name = message.from_user.full_name
+    log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
+    log_info(f"🆔 ID фото: {message.photo[-1].file_id}")
+    photo = message.photo[-1]
+    await message.answer("✅ **Скриншот отправлен на проверку!**", parse_mode="Markdown")
+    log_success(f"✅ Скриншот от {username} отправлен админу")
+    try:
+        await bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=photo.file_id,
+            caption=f"Новый скриншот от {name} (ID: {user_id})",
+            reply_markup=admin_screenshot_keyboard(user_id)
+        )
+        log_success(f"✅ Фото доставлено админу")
+    except Exception as e:
+        log_error(f"❌ Ошибка отправки админу: {e}")
+        await message.answer("⚠️ Ошибка при отправке админу")
+    await state.clear()
 
-# ============= ЗАПУСК =============
+@dp.message(States.waiting_photo)
+async def not_photo(message: Message):
+    username = message.from_user.first_name
+    log_warning(f"⚠️ {username} ОТПРАВИЛ НЕ ФОТО")
+    await message.answer("❌ **Отправь фото, а не текст!**\n\n📸 Сделай скриншот задания и отправь его как фото.", parse_mode="Markdown")
+
+@dp.message(States.waiting_review)
+async def handle_review(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.first_name
+    user_tag = message.from_user.username or "Нет username"
+    review_text = message.text
+    if user_id in users_who_reviewed:
+        await message.answer(
+            "❌ **Вы уже оставляли отзыв!**\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
+            parse_mode="Markdown"
+        )
+        await state.clear()
+        return
+    log_review(f"📝 НОВЫЙ ОТЗЫВ от {username}: {review_text[:50]}...")
+    try:
+        review_message = (
+            f"📝 **Новый отзыв!**\n\n"
+            f"👤 **Отзыв от** @{user_tag}\n"
+            f"💬 **Текст отзыва:**\n"
+            f"«{review_text}»"
+        )
+        await bot.send_message(
+            chat_id=REVIEW_CHANNEL_ID,
+            text=review_message,
+            parse_mode="Markdown"
+        )
+        users_who_reviewed.add(user_id)
+        log_success(f"✅ Отзыв от {username} опубликован в канале {REVIEW_CHANNEL_ID}")
+        await message.answer(
+            "✅ **Спасибо за ваш отзыв!**\n\n"
+            f"📢 Он уже опубликован в канале {REVIEW_CHANNEL_ID}\n\n"
+            "🔝 Чтобы вернуться в меню, нажми /start",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        log_error(f"❌ Ошибка при отправке отзыва в канал: {e}")
+        await message.answer(
+            "❌ **Ошибка при отправке отзыва**\n\n"
+            "Попробуйте позже или напишите админу @emycac",
+            parse_mode="Markdown"
+        )
+    await state.clear()
+
+# ===== КЛИКИ В МЕНЮ =====
+@dp.callback_query(F.data == "balance")
+async def balance(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    username = callback.from_user.first_name
+    user_data = get_user_data(user_id)
+    log_user_action(username, f"💰 ПРОВЕРИЛ БАЛАНС: {user_data['balance']:,} монет")
+    if can_do_task(user_id):
+        task_status = "✅ Доступно"
+    else:
+        task_status = f"⏳ Через {get_time_left(user_id)}"
+    await callback.message.answer(
+        f"💰 **Твой баланс:** {user_data['balance']:,} монет\n\n"
+        f"📊 **Статус задания:** {task_status}",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "withdraw_menu")
+async def withdraw_menu(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    username = callback.from_user.first_name
+    user_data = get_user_data(user_id)
+    log_user_action(username, "💸 ОТКРЫЛ МЕНЮ ВЫВОДА")
+    if user_data['balance'] <= 0:
+        await callback.answer("❌ У тебя нет монет для вывода! Выполни задание.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"💸 **Меню вывода средств**\n\n"
+        f"💰 **Твой баланс:** {user_data['balance']:,} монет\n\n"
+        f"Выбери действие:",
+        reply_markup=withdraw_menu_keyboard(user_id),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_to_menu")
+async def back_to_menu(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    log_user_action(username, "🔙 ВЕРНУЛСЯ В ГЛАВНОЕ МЕНЮ")
+    await callback.message.edit_text(
+        "✅ **Выбирай что нужно:**",
+        reply_markup=menu_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "withdraw_all")
+async def withdraw_all(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    username = callback.from_user.first_name
+    user_data = get_user_data(user_id)
+    log_user_action(username, f"💸 ХОЧЕТ ВЫВЕСТИ {user_data['balance']:,} монет")
+    if user_data['balance'] <= 0:
+        await callback.answer("❌ Нет монет для вывода!", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"💸 **Вывод средств**\n\n"
+        f"💰 **Сумма к выводу:** {user_data['balance']:,} монет\n\n"
+        f"📝 **Инструкция:**\n"
+        f"1️⃣ Зайди на сервер **HolyTime**\n"
+        f"2️⃣ Выставь на аукцион предмет за **{user_data['balance']:,} монет**\n"
+        f"3️⃣ Напиши сюда свой **никнейм**\n\n"
+        f"✍️ **Введи свой никнейм:**",
+        parse_mode="Markdown"
+    )
+    await state.set_state(States.waiting_nickname)
+    await callback.answer()
+
+@dp.message(States.waiting_nickname)
+async def handle_nickname(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.first_name
+    nickname = message.text.strip()
+    user_data = get_user_data(user_id)
+    amount = user_data['balance']
+    log_user_action(username, f"✍️ ВВЕЛ НИКНЕЙМ: {nickname}")
+    if len(nickname) < 2 or len(nickname) > 32:
+        await message.answer(
+            "❌ **Некорректный никнейм!**\n"
+            "Введи никнейм длиной от 2 до 32 символов:"
+        )
+        return
+    # Сохраняем запрос
+    users[str(user_id)]['last_task_time'] = time.time()
+    save_users()
+    withdraw_requests[user_id] = {
+        'amount': amount,
+        'nickname': nickname,
+        'time': time.time()
+    }
+    await message.answer(
+        f"✅ **Запрос на вывод отправлен!**\n\n"
+        f"💰 **Сумма:** {amount:,} монет\n"
+        f"👤 **Никнейм:** {nickname}\n"
+        f"🌐 **Сервер:** HolyTime\n\n"
+        f"⏳ Ожидай проверки администратором...",
+        parse_mode="Markdown"
+    )
+    try:
+        await bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"💰 НОВЫЙ ЗАПРОС НА ВЫВОД\n\n"
+            f"👤 Пользователь: {message.from_user.full_name}\n"
+            f"🆔 ID: {user_id}\n"
+            f"📱 Username: @{message.from_user.username or 'Нет'}\n"
+            f"💰 Сумма: {amount:,} монет\n"
+            f"👤 Никнейм: {nickname}\n"
+            f"🌐 Сервер: HolyTime\n\n"
+            f"Проверь аукцион!",
+            reply_markup=admin_withdraw_keyboard(user_id)
+        )
+        log_success(f"✅ Запрос на вывод отправлен админу")
+    except Exception as e:
+        log_error(f"❌ Ошибка отправки админу: {e}")
+        await message.answer("⚠️ Ошибка при отправке запроса админу")
+    await state.clear()
+
+# ===== АДМИН КОМАНДЫ =====
+@dp.callback_query(F.data.startswith("ok_"))
+async def approve_screenshot(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        log_warning(f"⚠️ Попытка подтверждения не админом: {callback.from_user.first_name}")
+        await callback.answer("Нет прав!", show_alert=True)
+        return
+    user_id = int(callback.data.split("_")[1])
+    add_balance(user_id, REWARD_AMOUNT)
+    users[str(user_id)]['last_task_time'] = time.time()
+    log_big_title(f"АДМИН ПОДТВЕРДИЛ СКРИНШОТ")
+    log_action(f"👑 Админ подтвердил скриншот пользователя ID:{user_id}")
+    log_success(f"💰 Начислено {REWARD_AMOUNT:,} монет")
+    try:
+        await bot.send_message(
+            user_id,
+            f"✅ **Админ {ADMIN_USERNAME} подтвердил ваш скриншот!**\n\n"
+            f"🎉 **+{REWARD_AMOUNT:,} монет** зачислено на баланс!\n"
+            f"💰 **Текущий баланс:** {users[str(user_id)]['balance']:,} монет",
+            parse_mode="Markdown"
+        )
+        log_success(f"✅ Уведомление отправлено пользователю")
+    except Exception as e:
+        log_error(f"❌ Не удалось отправить уведомление пользователю: {e}")
+    await callback.message.edit_caption(callback.message.caption + "\n✅ ПОДТВЕРЖДЕНО")
+    await callback.answer("Готово!")
+
+@dp.callback_query(F.data.startswith("no_"))
+async def reject_screenshot(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        log_warning(f"⚠️ Попытка отклонения не админом: {callback.from_user.first_name}")
+        await callback.answer("Нет прав!", show_alert=True)
+        return
+    user_id = int(callback.data.split("_")[1])
+    log_big_title(f"АДМИН ОТКЛОНИЛ СКРИНШОТ")
+    log_action(f"👑 Админ отклонил скриншот пользователя ID:{user_id}")
+    try:
+        await bot.send_message(
+            user_id,
+            "❌ **Ваш скриншот был отклонен!**\n\n"
+            "Причина: ты не выполнил задание по инструкции.\n"
+            "Попробуй еще раз!",
+            parse_mode="Markdown"
+        )
+        log_success(f"✅ Уведомление об отказе отправлено")
+    except Exception as e:
+        log_error(f"❌ Не удалось отправить уведомление об отказе: {e}")
+        await callback.message.edit_caption(callback.message.caption + "\n❌ ОТКЛОНЕНО")
+    await callback.answer("Готово!")
+
+@dp.callback_query(F.data.startswith("bought_"))
+async def bought(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет прав!", show_alert=True)
+        return
+    user_id = int(callback.data.split("_")[1])
+    if user_id in users:
+        old_balance = users[str(user_id)]['balance']
+        users[str(user_id)]['balance'] = 0
+        log_big_title(f"АДМИН: КУПЛЕНО")
+        log_action(f"👑 Админ подтвердил покупку для пользователя {user_id}")
+        log_success(f"💰 Списано {old_balance:,} монет")
+        try:
+            await bot.send_message(
+                user_id,
+                "✅ **Администрация купила ваш предмет!**\n\n"
+                "📝 **Если хотите, напишите отзыв о нашем проекте!**\n\n"
+                "👉 Нажмите кнопку **📝 ОТЗЫВЫ** в главном меню и напишите отзыв\n\n"
+                "📢 Ваш отзыв будет опубликован в канале @HolyBuxOtziv от вашего имени",
+                parse_mode="Markdown"
+            )
+            log_success(f"✅ Уведомление о покупке с предложением отзыва отправлено пользователю {user_id}")
+        except Exception as e:
+            log_error(f"❌ Не удалось отправить уведомление: {e}")
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ **КУПЛЕНО**\n💰 Баланс обнулен"
+        )
+        await callback.answer("Готово!")
+
+@dp.callback_query(F.data.startswith("not_bought_"))
+async def not_bought(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет прав!", show_alert=True)
+        return
+    user_id = int(callback.data.split("_")[1])
+    log_big_title(f"АДМИН: НЕ КУПЛЕНО")
+    log_action(f"👑 Админ отклонил покупку для пользователя {user_id}")
+    try:
+        await bot.send_message(
+            user_id,
+            "❌ **Вы не выставили предмет либо ваш ник неправильный!**\n\n"
+            "💰 Ваш баланс сохранен. Попробуйте еще раз.",
+            parse_mode="Markdown"
+        )
+        log_success(f"✅ Уведомление об отказе отправлено")
+    except Exception as e:
+        log_error(f"❌ Не удалось отправить уведомление: {e}")
+        await callback.message.edit_text(
+            callback.message.text + "\n\n❌ **НЕ КУПЛЕНО**\n💰 Баланс сохранен"
+        )
+        await callback.answer("Готово!")
+
+# ===== ОБРАБОТКА ВСЕХ ПРОСТЫХ СООБЩЕНИЙ =====
+@dp.message()
+async def handle_other_messages(message: Message):
+    if message.text and message.text.startswith('/'):
+        return
+    await message.answer("❓ **Используй кнопки меню или команду /start**", parse_mode="Markdown")
+
+# ===== ЗАПУСК =====
 async def main():
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║                 🚀 ТЕЛЕГРАМ БОТ ЗАПУЩЕН 🚀                  ║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║ 🚀 ТЕЛЕГРАМ БОТ ЗАПУЩЕН 🚀 ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END}  📢 Канал: {Colors.CYAN}{CHANNEL_ID}{Colors.END}                                            ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END}  📝 Канал отзывов: {Colors.PINK}{REVIEW_CHANNEL_ID}{Colors.END}                                  ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END}  👤 Админ: {Colors.GREEN}{ADMIN_USERNAME}{Colors.END}                                          ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END}  💰 Награда: {Colors.YELLOW}{REWARD_AMOUNT:,}{Colors.END} монет                                 ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END}  ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END}                                          ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END}  ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END}              ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 📢 Канал: {Colors.CYAN}{CHANNEL_ID}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 📝 Канал отзывов: {Colors.PINK}{REVIEW_CHANNEL_ID}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 👤 Админ: {Colors.GREEN}{ADMIN_USERNAME}{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Награда: {Colors.YELLOW}{REWARD_AMOUNT:,}{Colors.END} монет ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
     print("")
-    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
