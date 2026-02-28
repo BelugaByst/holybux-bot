@@ -4,13 +4,13 @@ import time
 import os
 import json
 from datetime import datetime
+from threading import Thread
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.dispatcher.filters import Command
 
 # ===== ВЕБ-СЕРВЕР =====
 from aiohttp import web
@@ -686,7 +686,6 @@ if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
     # Запускаем веб-сервер в отдельном потоке
-    from threading import Thread
     def run_web():
         web.run_app(app, host='0.0.0.0', port=port)
     
