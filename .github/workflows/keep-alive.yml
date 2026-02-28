@@ -2,15 +2,13 @@ name: Keep Render Alive
 
 on:
   schedule:
-    - cron: '*/1 * * * *'  # Каждую минуту!
+    - cron: '*/10 * * * *'  # Каждые 10 минут
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Render App
+      - name: Trigger Render Deploy
         run: |
-          echo "⏰ Будим бота в $(date)"
-          curl -I https://hollybux-bot.onrender.com
-          echo "✅ Запрос отправлен!"
+          curl -X POST "https://api.render.com/deploy/srv-cnuf4d6l6c7s63de5la0?key=UHgNK36oH9o"
