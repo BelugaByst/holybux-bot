@@ -8,7 +8,7 @@ from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -70,8 +70,9 @@ async def run_web_server():
 
 # ===== ФУНКЦИИ РАБОТЫ С ДАННЫМИ =====
 def load_users():
-    global users
+    global users, users_who_reviewed
     users = {}
+    users_who_reviewed = set()
     
     if redis_client:
         try:
@@ -88,7 +89,6 @@ def load_users():
             
             # Загружаем отзывы
             reviewed_users = redis_client.smembers("users_who_reviewed")
-            users_who_reviewed.clear()
             for user_id in reviewed_users:
                 users_who_reviewed.add(int(user_id))
                 
@@ -101,12 +101,11 @@ def load_users():
         if os.path.exists('users_backup.json'):
             try:
                 with open('users_backup.json', 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    users = data.get('users', {})
+                    users = json.load(f)
                     
                 if os.path.exists('reviews_backup.json'):
                     with open('reviews_backup.json', 'r', encoding='utf-8') as f:
-                        users_who_reviewed.update(json.load(f))
+                        users_who_reviewed = set(json.load(f))
                         
                 print(f"✅ Загружено {len(users)} пользователей из backup")
             except Exception as e:
@@ -202,6 +201,17 @@ async def auto_save():
         if users:
             save_users()
             print(f"💾 Автосохранение: {len(users)} пользователей сохранено")
+
+async def remind_user_about_cooldown(user_id, chat_id):
+    time_left = get_time_left(user_id)
+    if time_left != "0":
+        try:
+            await bot.send_message(
+                chat_id,
+                f"⏳ Осталось подождать: {time_left} до следующего задания!"
+            )
+        except Exception as e:
+            print(f"Ошибка при отправке напоминания: {e}")
 
 # ===== ЦВЕТА ДЛЯ ЛОГОВ =====
 class Colors:
@@ -712,8 +722,4 @@ async def bought(callback: CallbackQuery):
         try:
             await bot.send_message(
                 user_id,
-                "✅ **Администрация купила ваш предмет!**\n\n"
-                "📝 **Если хотите, напишите отзыв о нашем проекте!**\n\n"
-                "👉 Нажмите кнопку **📝 ОТЗЫВЫ** в главном меню и напишите отзыв\n\n"
-                "📢 Ваш отзыв будет опубликован в канале @HolyBuxOtziv от вашего имени",
-                parse_mode="Markdown
+                "✅ **Администрация купила ваш предмет!**
