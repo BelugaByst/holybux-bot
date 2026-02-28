@@ -38,7 +38,7 @@ users = {}
 withdraw_requests = {}
 users_who_reviewed = set()
 referrals = {}
-user_screenshots = {}  # Для отслеживания повторных скриншотов
+user_screenshots = {}
 
 # ===== ВЕБ-СЕРВЕР =====
 app = web.Application()
@@ -244,7 +244,6 @@ async def start(message: Message):
     username = message.from_user.first_name
     user_id = str(message.from_user.id)
     
-    # Реферальная система
     args = message.get_args()
     if args and args.isdigit():
         referrer_id = args
@@ -277,7 +276,6 @@ async def start(message: Message):
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
-# ===== РЕФЕРАЛЬНАЯ ССЫЛКА =====
 @dp.callback_query_handler(lambda c: c.data == 'ref_link')
 async def ref_link(callback: CallbackQuery):
     username = callback.from_user.first_name
@@ -406,7 +404,6 @@ async def help_button(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗАДАНИЯ =====
 @dp.callback_query_handler(lambda c: c.data == 'task')
 async def task(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -415,6 +412,7 @@ async def task(callback: CallbackQuery, state: FSMContext):
     
     if not can_do_task(user_id):
         time_left = get_time_left(user_id)
+        await remind_user_about_cooldown(user_id, chat_id)
         await callback.answer(
             f"⏳ Подожди {time_left} до следующего задания!", 
             show_alert=True
@@ -441,7 +439,6 @@ async def task(callback: CallbackQuery, state: FSMContext):
     await state.set_state(States.waiting_photo)
     await callback.answer()
 
-# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОЛУЧЕНИЯ ФОТО =====
 @dp.message_handler(content_types=['photo'], state=States.waiting_photo)
 async def get_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -452,7 +449,6 @@ async def get_photo(message: Message, state: FSMContext):
     log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
     log_info(f"🆔 ID фото: {photo_id}")
     
-    # Проверяем, не отправлял ли пользователь этот скриншот раньше
     user_screenshots[str(user_id)] = user_screenshots.get(str(user_id), [])
     
     if photo_id in user_screenshots[str(user_id)]:
@@ -463,7 +459,6 @@ async def get_photo(message: Message, state: FSMContext):
             "⚠️ Администратор уже получил уведомление о нарушении.\n\n"
             "📋 **Сделай новое задание и отправь СВЕЖИЙ скриншот!**"
         )
-        # Отправляем уведомление админу о попытке обмана
         try:
             await bot.send_message(
                 ADMIN_ID,
@@ -478,7 +473,6 @@ async def get_photo(message: Message, state: FSMContext):
         await state.finish()
         return
     
-    # Сохраняем ID скриншота
     user_screenshots[str(user_id)].append(photo_id)
     save_screenshots()
     
@@ -548,7 +542,6 @@ async def handle_review(message: Message, state: FSMContext):
         )
     await state.finish()
 
-# ===== ИСПРАВЛЕННАЯ ФУНКЦИЯ БАЛАНСА =====
 @dp.callback_query_handler(lambda c: c.data == 'balance')
 async def balance(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -562,7 +555,6 @@ async def balance(callback: CallbackQuery):
     else:
         task_status = f"⏳ Через {get_time_left(user_id)}"
     
-    # Получаем количество рефералов
     referral_count = len(referrals.get(str(user_id), []))
     
     await callback.message.answer(
