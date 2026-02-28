@@ -14,7 +14,6 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 
 # ===== ВЕБ-СЕРВЕР =====
 from aiohttp import web
-import aiohttp
 
 # ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -63,7 +62,7 @@ def load_users():
 
 def save_users():
     with open('users.json', 'w', encoding='utf-8') as f:
-        json.dump(users, f)
+        json.dump(users, f, ensure_ascii=False, indent=2)
 
 def load_referrals():
     global referrals
@@ -78,7 +77,7 @@ def load_referrals():
 
 def save_referrals():
     with open('referrals.json', 'w', encoding='utf-8') as f:
-        json.dump(referrals, f)
+        json.dump(referrals, f, ensure_ascii=False, indent=2)
 
 def load_screenshots():
     global user_screenshots
@@ -93,7 +92,7 @@ def load_screenshots():
 
 def save_screenshots():
     with open('screenshots.json', 'w', encoding='utf-8') as f:
-        json.dump(user_screenshots, f)
+        json.dump(user_screenshots, f, ensure_ascii=False, indent=2)
 
 def get_user_data(user_id):
     user_id_str = str(user_id)
@@ -449,7 +448,8 @@ async def get_photo(message: Message, state: FSMContext):
     log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
     log_info(f"🆔 ID фото: {photo_id}")
     
-    user_screenshots[str(user_id)] = user_screenshots.get(str(user_id), [])
+    if str(user_id) not in user_screenshots:
+        user_screenshots[str(user_id)] = []
     
     if photo_id in user_screenshots[str(user_id)]:
         log_warning(f"⚠️ {username} ОТПРАВИЛ ПОВТОРНЫЙ СКРИНШОТ!")
@@ -578,8 +578,6 @@ async def withdraw_menu(callback: CallbackQuery):
     if user_data['balance'] <= 0:
         await callback.answer("❌ У тебя нет монет для вывода! Выполни задание.", show_alert=True)
         return
-    if not can_do_task(user_id):
-        await remind_user_about_cooldown(user_id, callback.message.chat.id)
     await callback.message.edit_text(
         f"💸 **Меню вывода средств**\n\n"
         f"💰 **Твой баланс:** {user_data['balance']:,} монет\n\n"
@@ -609,8 +607,6 @@ async def withdraw_all(callback: CallbackQuery, state: FSMContext):
     if user_data['balance'] <= 0:
         await callback.answer("❌ Нет монет для вывода!", show_alert=True)
         return
-    if not can_do_task(user_id):
-        await remind_user_about_cooldown(user_id, callback.message.chat.id)
     await callback.message.edit_text(
         f"💸 **Вывод средств**\n\n"
         f"💰 **Сумма к выводу:** {user_data['balance']:,} монет\n\n"
@@ -816,12 +812,15 @@ async def start_bot():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
+    # Запускаем веб-сервер в отдельном потоке
     def run_web():
         web.run_app(app, host='0.0.0.0', port=port)
     
     web_thread = Thread(target=run_web, daemon=True)
     web_thread.start()
+    print(f"🌐 Веб-сервер запущен на порту {port}")
     
+    # Запускаем бота в главном потоке
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
