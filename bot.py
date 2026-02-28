@@ -7,20 +7,22 @@ from datetime import datetime
 from threading import Thread
 import requests
 
+# Версия: 20250228-150000  # GitHub Actions будет менять эту строку
+
 # ===== САМОПИНГЕР =====
 def ping_self():
     render_url = "https://hollybux-bot.onrender.com/health"
     while True:
         try:
             response = requests.get(render_url, timeout=10)
-            print(f"✅ Самопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
+            print(f"✅ Автопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
         except Exception as e:
             print(f"❌ Ошибка пинга: {e}")
         time.sleep(600)
 
 ping_thread = Thread(target=ping_self, daemon=True)
 ping_thread.start()
-print("🔥 Самопингер запущен!")
+print("🔥 Самопингер активен 24/7")
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -739,6 +741,7 @@ async def reject_screenshot(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer("Готово!")
 
+# ===== ИСПРАВЛЕННАЯ КНОПКА НЕ КУПИЛ =====
 @dp.callback_query_handler(lambda c: c.data.startswith('bought_'))
 async def bought(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -820,7 +823,7 @@ async def start_bot():
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Бонус за друга: {Colors.YELLOW}{REFERRAL_BONUS:,}{Colors.END} монет ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}САМОПИНГ КАЖДЫЕ 10 МИНУТ{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Автообновление: {Colors.GREEN}КАЖДЫЕ 5 МИНУТ{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
