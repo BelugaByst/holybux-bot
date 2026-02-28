@@ -25,6 +25,7 @@ ADMIN_USERNAME = "@emycac"
 CHANNEL_NAME = "HolyTime"
 REWARD_AMOUNT = 3000000
 COOLDOWN_SECONDS = 3600
+REFERRAL_BONUS = 1000000  # 1.000.000 за реферала
 
 # ===== КЛАССЫ СОСТОЯНИЙ =====
 class States(StatesGroup):
@@ -36,6 +37,7 @@ class States(StatesGroup):
 users = {}
 withdraw_requests = {}
 users_who_reviewed = set()
+referrals = {}  # Для хранения рефералов
 
 # ===== ВЕБ-СЕРВЕР =====
 app = web.Application()
@@ -61,6 +63,21 @@ def load_users():
 def save_users():
     with open('users.json', 'w', encoding='utf-8') as f:
         json.dump(users, f)
+
+def load_referrals():
+    global referrals
+    if os.path.exists('referrals.json'):
+        try:
+            with open('referrals.json', 'r', encoding='utf-8') as f:
+                referrals = json.load(f)
+        except:
+            referrals = {}
+    else:
+        referrals = {}
+
+def save_referrals():
+    with open('referrals.json', 'w', encoding='utf-8') as f:
+        json.dump(referrals, f)
 
 def get_user_data(user_id):
     user_id_str = str(user_id)
@@ -209,13 +226,68 @@ def admin_withdraw_keyboard(user_id):
 @dp.message_handler(commands=['start'])
 async def start(message: Message):
     username = message.from_user.first_name
+    user_id = str(message.from_user.id)
+    
+    # Реферальная система
+    args = message.get_args()
+    if args and args.isdigit():
+        referrer_id = args
+        if referrer_id != user_id:
+            if user_id not in referrals.get(referrer_id, []):
+                if referrer_id not in referrals:
+                    referrals[referrer_id] = []
+                if user_id not in referrals[referrer_id]:
+                    referrals[referrer_id].append(user_id)
+                    add_balance(int(referrer_id), REFERRAL_BONUS)
+                    save_referrals()
+                    
+                    try:
+                        await bot.send_message(
+                            int(referrer_id),
+                            f"🎉 **По вашей ссылке зарегистрировался новый пользователь!**\n\n"
+                            f"👤 {username}\n"
+                            f"💰 **+{REFERRAL_BONUS:,} монет** зачислено на баланс!"
+                        )
+                    except:
+                        pass
+                    
+                    log_success(f"💰 Реферал: {username} (ID: {user_id}) от {referrer_id} +{REFERRAL_BONUS:,}")
+    
     log_divider()
     log_big_title(f"НОВЫЙ ПОЛЬЗОВАТЕЛЬ: {username}")
-    log_user_action(username, f"🚀 ЗАПУСТИЛ БОТА [ID: {message.from_user.id}]")
+    log_user_action(username, f"🚀 ЗАПУСТИЛ БОТА [ID: {user_id}]")
     log_info(f"📅 Дата и время: {current_datetime()}")
     log_info(f"📱 Username: @{message.from_user.username or 'Нет'}")
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
+
+@dp.callback_query_handler(lambda c: c.data == 'ref_link')
+async def ref_link(callback: CallbackQuery):
+    username = callback.from_user.first_name
+    user_id = callback.from_user.id
+    log_user_action(username, "🎉 НАЖАЛ ДРУЗЬЯ")
+    
+    # Получаем username бота
+    bot_info = await bot.get_me()
+    bot_username = bot_info.username
+    
+    # Реферальная ссылка
+    ref_link = f"https://t.me/{bot_username}?start={user_id}"
+    
+    # Считаем количество рефералов
+    referral_count = len(referrals.get(str(user_id), []))
+    
+    await callback.message.answer(
+        f"🎉 **Реферальная система**\n\n"
+        f"👥 **Приглашено друзей:** {referral_count}\n"
+        f"💰 **Получено бонусов:** {referral_count * REFERRAL_BONUS:,} монет\n\n"
+        f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
+        f"📱 **Отправь эту ссылку друзьям**\n"
+        f"💎 **За каждого друга +{REFERRAL_BONUS:,} монет**\n\n"
+        f"✨ Чем больше друзей, тем больше бонусов!",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data == 'no')
 async def no(callback: CallbackQuery):
@@ -271,7 +343,8 @@ async def check_subscribe(callback: CallbackQuery):
             "💰 **БАЛАНС** - проверить монеты\n"
             "💸 **ВЫВОД** - вывести средства\n"
             "📝 **ОТЗЫВЫ** - оставить отзыв\n"
-            "❓ **ПОМОЩЬ** - помощь",
+            "❓ **ПОМОЩЬ** - помощь\n"
+            "🎉 **ДРУЗЬЯ** - пригласить друзей и получить бонус",
             reply_markup=menu_keyboard(),
             parse_mode="Markdown"
         )
@@ -665,6 +738,7 @@ async def remind_user_about_cooldown(user_id, chat_id):
 
 async def start_bot():
     load_users()
+    load_referrals()
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
@@ -673,6 +747,7 @@ async def start_bot():
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 👤 Админ: {Colors.GREEN}{ADMIN_USERNAME}{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Награда: {Colors.YELLOW}{REWARD_AMOUNT:,}{Colors.END} монет ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Бонус за друга: {Colors.YELLOW}{REFERRAL_BONUS:,}{Colors.END} монет ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}GITHUB ACTIONS КАЖДУЮ МИНУТУ{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
@@ -698,7 +773,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log_warning("⏹ Бот остановлен пользователем")
         save_users()
+        save_referrals()
         print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
     except Exception as e:
         log_error(f"❌ Критическая ошибка: {e}")
         save_users()
+        save_referrals()
