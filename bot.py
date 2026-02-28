@@ -5,9 +5,9 @@ import os
 import json
 from datetime import datetime
 from threading import Thread
-import requests  # Для самопинга
+import requests
 
-# ===== САМОПИНГЕР (чтобы Render не спал) =====
+# ===== САМОПИНГЕР =====
 def ping_self():
     render_url = "https://hollybux-bot.onrender.com/health"
     while True:
@@ -16,12 +16,11 @@ def ping_self():
             print(f"✅ Самопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
         except Exception as e:
             print(f"❌ Ошибка пинга: {e}")
-        time.sleep(600)  # 10 минут
+        time.sleep(600)
 
-# Запускаем пингер в фоновом потоке
 ping_thread = Thread(target=ping_self, daemon=True)
 ping_thread.start()
-print("🔥 Самопингер запущен! Бот будет будить себя каждые 10 минут")
+print("🔥 Самопингер запущен!")
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -698,7 +697,6 @@ async def approve_screenshot(callback: CallbackQuery):
     log_action(f"👑 Админ подтвердил скриншот пользователя ID:{user_id}")
     log_success(f"💰 Начислено {REWARD_AMOUNT:,} монет")
     try:
-        # Клавиатура с кнопкой вывода
         withdraw_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💸 ВЫВЕСТИ СРЕДСТВА", callback_data="withdraw_menu")]
         ])
@@ -781,7 +779,7 @@ async def not_bought(callback: CallbackQuery):
         await bot.send_message(
             user_id,
             "❌ **Вы не выставили предмет либо ваш ник неправильный!**\n\n"
-            "💰 Ваш баланс сохранен. Попробуйте еще раз.\n\n"
+            "💰 **Ваш баланс сохранен.** Попробуйте еще раз.\n\n"
             "💸 **Для повторной попытки нажмите кнопку ВЫВОД в меню**",
             parse_mode="Markdown"
         )
@@ -833,7 +831,6 @@ async def start_bot():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
     
-    # Запускаем веб-сервер в отдельном процессе
     from multiprocessing import Process
     
     def run_web():
@@ -843,7 +840,6 @@ if __name__ == "__main__":
     web_process.start()
     print(f"🌐 Веб-сервер запущен на порту {port}")
     
-    # Запускаем бота в главном потоке
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
