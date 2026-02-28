@@ -332,17 +332,17 @@ async def help_button(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "task")
 async def task(callback: CallbackQuery, state: FSMContext):
-    username = callback.from_user.first_name
     user_id = callback.from_user.id
-    log_user_action(username, "📋 ПЫТАЕТСЯ ВЗЯТЬ ЗАДАНИЕ")
+    chat_id = callback.message.chat.id
     if not can_do_task(user_id):
+        await remind_user_about_cooldown(user_id, chat_id)
         time_left = get_time_left(user_id)
-        log_warning(f"⚠️ {username} НЕ МОЖЕТ ВЗЯТЬ ЗАДАНИЕ. Осталось: {time_left}")
         await callback.answer(
             f"⏳ Подожди {time_left} до следующего задания!", show_alert=True
         )
         return
-    log_success(f"✅ {username} ВЗЯЛ ЗАДАНИЕ")
+    log_user_action(callback.from_user.first_name, "📋 ПЫТАЕТСЯ ВЗЯТЬ ЗАДАНИЕ")
+    log_success(f"✅ {callback.from_user.first_name} ВЗЯЛ ЗАДАНИЕ")
     await callback.message.edit_text(
         "📋 **Твоё задание:**\n\n"
         "1️⃣ Зайди на сервер\n"
@@ -353,9 +353,7 @@ async def task(callback: CallbackQuery, state: FSMContext):
     )
     await callback.message.answer("📸 **Отправь скриншот:**", parse_mode="Markdown")
     await state.set_state(States.waiting_photo)
-    await callback.answer()
 
-# ===== ВАЖНО: ОБРАБОТЧИКИ ДЛЯ ФОТО =====
 @dp.message(States.waiting_photo, F.photo)
 async def get_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -435,6 +433,13 @@ async def balance(callback: CallbackQuery):
     username = callback.from_user.first_name
     user_data = get_user_data(user_id)
     log_user_action(username, f"💰 ПРОВЕРИЛ БАЛАНС: {user_data['balance']:,} монет")
+    if not can_do_task(user_id):
+        await remind_user_about_cooldown(user_id, callback.message.chat.id)
+        time_left = get_time_left(user_id)
+        await callback.answer(
+            f"⏳ Подожди {time_left} до следующего задания!", show_alert=True
+        )
+        return
     if can_do_task(user_id):
         task_status = "✅ Доступно"
     else:
@@ -455,6 +460,8 @@ async def withdraw_menu(callback: CallbackQuery):
     if user_data['balance'] <= 0:
         await callback.answer("❌ У тебя нет монет для вывода! Выполни задание.", show_alert=True)
         return
+    if not can_do_task(user_id):
+        await remind_user_about_cooldown(user_id, callback.message.chat.id)
     await callback.message.edit_text(
         f"💸 **Меню вывода средств**\n\n"
         f"💰 **Твой баланс:** {user_data['balance']:,} монет\n\n"
@@ -484,6 +491,8 @@ async def withdraw_all(callback: CallbackQuery, state: FSMContext):
     if user_data['balance'] <= 0:
         await callback.answer("❌ Нет монет для вывода!", show_alert=True)
         return
+    if not can_do_task(user_id):
+        await remind_user_about_cooldown(user_id, callback.message.chat.id)
     await callback.message.edit_text(
         f"💸 **Вывод средств**\n\n"
         f"💰 **Сумма к выводу:** {user_data['balance']:,} монет\n\n"
@@ -495,7 +504,6 @@ async def withdraw_all(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     await state.set_state(States.waiting_nickname)
-    await callback.answer()
 
 @dp.message(States.waiting_nickname)
 async def handle_nickname(message: Message, state: FSMContext):
@@ -654,6 +662,18 @@ async def handle_other_messages(message: Message):
     if message.text and message.text.startswith('/'):
         return
     await message.answer("❓ **Используй кнопки меню или команду /start**", parse_mode="Markdown")
+
+# ===== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ =====
+async def remind_user_about_cooldown(user_id, chat_id):
+    time_left = get_time_left(user_id)
+    if time_left != "0":
+        try:
+            await bot.send_message(
+                chat_id,
+                f"⏳ Осталось подождать: {time_left} до следующего задания!"
+            )
+        except Exception as e:
+            log_error(f"Ошибка при отправке напоминания: {e}")
 
 # ===== ЗАПУСК =====
 async def main():
