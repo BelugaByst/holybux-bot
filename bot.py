@@ -811,14 +811,14 @@ async def start_bot():
 # ===== ТОЧКА ВХОДА =====
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
-    
+
     def run_web():
         web.run_app(app, host='0.0.0.0', port=port)
-    
+
     web_thread = Thread(target=run_web, daemon=True)
     web_thread.start()
-    print(f"🌐 Веб-сервер запущен на порту {port}")
-    
+    print(f"Веб-сервер запущен на порту {port}")
+
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
