@@ -754,6 +754,7 @@ async def not_bought(callback: CallbackQuery):
         log_success(f"✅ Уведомление об отказе отправлено")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление: {e}")
+    
     await callback.message.edit_text(
         callback.message.text + "\n\n❌ **НЕ КУПЛЕНО**\n💰 Баланс сохранен"
     )
