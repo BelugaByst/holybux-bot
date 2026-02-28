@@ -5,6 +5,23 @@ import os
 import json
 from datetime import datetime
 from threading import Thread
+import requests  # Для самопинга
+
+# ===== САМОПИНГЕР (чтобы Render не спал) =====
+def ping_self():
+    render_url = "https://hollybux-bot.onrender.com/health"
+    while True:
+        try:
+            response = requests.get(render_url, timeout=10)
+            print(f"✅ Самопинг: {time.strftime('%H:%M:%S')} - Статус: {response.status_code}")
+        except Exception as e:
+            print(f"❌ Ошибка пинга: {e}")
+        time.sleep(600)  # 10 минут
+
+# Запускаем пингер в фоновом потоке
+ping_thread = Thread(target=ping_self, daemon=True)
+ping_thread.start()
+print("🔥 Самопингер запущен! Бот будет будить себя каждые 10 минут")
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -666,6 +683,7 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.finish()
 
+# ===== ИСПРАВЛЕННЫЕ АДМИН ФУНКЦИИ =====
 @dp.callback_query_handler(lambda c: c.data.startswith('ok_'))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -680,14 +698,21 @@ async def approve_screenshot(callback: CallbackQuery):
     log_action(f"👑 Админ подтвердил скриншот пользователя ID:{user_id}")
     log_success(f"💰 Начислено {REWARD_AMOUNT:,} монет")
     try:
+        # Клавиатура с кнопкой вывода
+        withdraw_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💸 ВЫВЕСТИ СРЕДСТВА", callback_data="withdraw_menu")]
+        ])
+        
         await bot.send_message(
             user_id,
             f"✅ **Админ {ADMIN_USERNAME}** подтвердил ваш скриншот!\n\n"
             f"🎉 **+{REWARD_AMOUNT:,} монет** зачислено на баланс!\n"
-            f"💰 **Текущий баланс:** {users[str(user_id)]['balance']:,} монет",
-            parse_mode="Markdown"
+            f"💰 **Текущий баланс:** {users[str(user_id)]['balance']:,} монет\n\n"
+            f"💸 **Теперь вы можете вывести свои средства, нажав на кнопку ниже**",
+            parse_mode="Markdown",
+            reply_markup=withdraw_keyboard
         )
-        log_success(f"✅ Уведомление отправлено пользователю")
+        log_success(f"✅ Уведомление с кнопкой вывода отправлено пользователю")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление пользователю: {e}")
     await callback.message.delete()
@@ -741,10 +766,8 @@ async def bought(callback: CallbackQuery):
             log_success(f"✅ Уведомление о покупке с предложением отзыва отправлено пользователю {user_id}")
         except Exception as e:
             log_error(f"❌ Не удалось отправить уведомление: {e}")
-        await callback.message.edit_text(
-            callback.message.text + "\n\n✅ **КУПЛЕНО**\n💰 Баланс обнулен"
-        )
-        await callback.answer("Готово!")
+    await callback.message.delete()
+    await callback.answer("Готово! Сообщение удалено")
 
 @dp.callback_query_handler(lambda c: c.data.startswith('not_bought_'))
 async def not_bought(callback: CallbackQuery):
@@ -758,16 +781,15 @@ async def not_bought(callback: CallbackQuery):
         await bot.send_message(
             user_id,
             "❌ **Вы не выставили предмет либо ваш ник неправильный!**\n\n"
-            "💰 Ваш баланс сохранен. Попробуйте еще раз.",
+            "💰 Ваш баланс сохранен. Попробуйте еще раз.\n\n"
+            "💸 **Для повторной попытки нажмите кнопку ВЫВОД в меню**",
             parse_mode="Markdown"
         )
         log_success(f"✅ Уведомление об отказе отправлено")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление: {e}")
-    await callback.message.edit_text(
-        callback.message.text + "\n\n❌ **НЕ КУПЛЕНО**\n💰 Баланс сохранен"
-    )
-    await callback.answer("Готово!")
+    await callback.message.delete()
+    await callback.answer("Готово! Сообщение удалено")
 
 @dp.message_handler()
 async def handle_other_messages(message: Message):
@@ -800,7 +822,7 @@ async def start_bot():
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏱ Кулдаун: {Colors.YELLOW}{COOLDOWN_SECONDS//3600} час{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 💰 Бонус за друга: {Colors.YELLOW}{REFERRAL_BONUS:,}{Colors.END} монет ")
     print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} ⏰ Время запуска: {Colors.YELLOW}{current_datetime()}{Colors.END} ")
-    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}GITHUB ACTIONS КАЖДУЮ МИНУТУ{Colors.END} ")
+    print(f"{Colors.BOLD}{Colors.PURPLE}║{Colors.END} 🔄 Пинг: {Colors.GREEN}САМОПИНГ КАЖДЫЕ 10 МИНУТ{Colors.END} ")
     print(f"{Colors.BOLD}{Colors.PURPLE}╚══════════════════════════════════════════════════════════════╝{Colors.END}")
     print("")
     log_system("🟢 Бот готов к работе! Ожидаю пользователей...")
