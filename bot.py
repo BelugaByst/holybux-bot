@@ -6,6 +6,13 @@ import json
 from datetime import datetime
 from threading import Thread
 import requests
+from supabase import create_client
+
+# ===== SUPABASE =====
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+print("✅ Supabase подключен!")
 
 # Версия: 20250228-150000 🔥
 
@@ -51,12 +58,94 @@ class States(StatesGroup):
     waiting_review = State()
     waiting_nickname = State()
 
-# ===== Глобальные переменные =====
-users = {}
-withdraw_requests = {}
-users_who_reviewed = set()
-referrals = {}
-user_screenshots = {}
+# ===== ФУНКЦИИ РАБОТЫ С SUPABASE =====
+def get_user_data(user_id):
+    """Получить данные пользователя из Supabase"""
+    try:
+        response = supabase.table('users').select('*').eq('user_id', user_id).execute()
+        
+        if response.data and len(response.data) > 0:
+            return {
+                'balance': response.data[0]['balance'],
+                'last_task_time': response.data[0]['last_task_time']
+            }
+        else:
+            # Создаем нового пользователя
+            new_user = {
+                'user_id': user_id,
+                'balance': 0,
+                'last_task_time': 0
+            }
+            supabase.table('users').insert(new_user).execute()
+            return {'balance': 0, 'last_task_time': 0}
+    except Exception as e:
+        print(f"❌ Ошибка Supabase: {e}")
+        return {'balance': 0, 'last_task_time': 0}
+
+def add_balance(user_id, amount):
+    """Добавить баланс пользователю"""
+    try:
+        response = supabase.table('users').select('balance').eq('user_id', user_id).execute()
+        current_balance = response.data[0]['balance'] if response.data else 0
+        new_balance = current_balance + amount
+        supabase.table('users').update({'balance': new_balance}).eq('user_id', user_id).execute()
+        return new_balance
+    except Exception as e:
+        print(f"❌ Ошибка обновления баланса: {e}")
+        return 0
+
+def update_last_task(user_id, task_time):
+    """Обновить время последнего задания"""
+    try:
+        supabase.table('users').update({'last_task_time': task_time}).eq('user_id', user_id).execute()
+    except Exception as e:
+        print(f"❌ Ошибка обновления времени: {e}")
+
+def add_referral(user_id, referral_id):
+    """Добавить реферала"""
+    try:
+        response = supabase.table('users').select('referrals').eq('user_id', user_id).execute()
+        referrals = response.data[0].get('referrals', []) if response.data else []
+        
+        if referral_id not in referrals:
+            referrals.append(referral_id)
+            supabase.table('users').update({'referrals': referrals}).eq('user_id', user_id).execute()
+            return True
+        return False
+    except Exception as e:
+        print(f"❌ Ошибка добавления реферала: {e}")
+        return False
+
+def add_screenshot(user_id, screenshot_id):
+    """Сохранить ID скриншота"""
+    try:
+        response = supabase.table('users').select('screenshots').eq('user_id', user_id).execute()
+        screenshots = response.data[0].get('screenshots', []) if response.data else []
+        
+        if screenshot_id not in screenshots:
+            screenshots.append(screenshot_id)
+            supabase.table('users').update({'screenshots': screenshots}).eq('user_id', user_id).execute()
+            return True
+        return False
+    except Exception as e:
+        print(f"❌ Ошибка сохранения скриншота: {e}")
+        return False
+
+def set_reviewed(user_id):
+    """Отметить что пользователь оставил отзыв"""
+    try:
+        supabase.table('users').update({'reviewed': True}).eq('user_id', user_id).execute()
+    except Exception as e:
+        print(f"❌ Ошибка обновления отзыва: {e}")
+
+def is_reviewed(user_id):
+    """Проверить оставлял ли пользователь отзыв"""
+    try:
+        response = supabase.table('users').select('reviewed').eq('user_id', user_id).execute()
+        return response.data[0].get('reviewed', False) if response.data else False
+    except Exception as e:
+        print(f"❌ Ошибка проверки отзыва: {e}")
+        return False
 
 # ===== ВЕБ-СЕРВЕР =====
 app = web.Application()
@@ -66,92 +155,6 @@ async def handle_health(request):
 
 app.router.add_get('/', handle_health)
 app.router.add_get('/health', handle_health)
-
-# ===== ФУНКЦИИ РАБОТЫ С ДАННЫМИ =====
-def load_users():
-    global users
-    if os.path.exists('users.json'):
-        try:
-            with open('users.json', 'r', encoding='utf-8') as f:
-                users = json.load(f)
-        except:
-            users = {}
-    else:
-        users = {}
-
-def save_users():
-    with open('users.json', 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
-
-def load_referrals():
-    global referrals
-    if os.path.exists('referrals.json'):
-        try:
-            with open('referrals.json', 'r', encoding='utf-8') as f:
-                referrals = json.load(f)
-        except:
-            referrals = {}
-    else:
-        referrals = {}
-
-def save_referrals():
-    with open('referrals.json', 'w', encoding='utf-8') as f:
-        json.dump(referrals, f, ensure_ascii=False, indent=2)
-
-def load_screenshots():
-    global user_screenshots
-    if os.path.exists('screenshots.json'):
-        try:
-            with open('screenshots.json', 'r', encoding='utf-8') as f:
-                user_screenshots = json.load(f)
-        except:
-            user_screenshots = {}
-    else:
-        user_screenshots = {}
-
-def save_screenshots():
-    with open('screenshots.json', 'w', encoding='utf-8') as f:
-        json.dump(user_screenshots, f, ensure_ascii=False, indent=2)
-
-def get_user_data(user_id):
-    user_id_str = str(user_id)
-    if user_id_str not in users:
-        users[user_id_str] = {'balance': 0, 'last_task_time': 0}
-        save_users()
-    return users[user_id_str]
-
-def add_balance(user_id, amount):
-    user_str_id = str(user_id)
-    if user_str_id not in users:
-        users[user_str_id] = {'balance': 0, 'last_task_time': 0}
-    users[user_str_id]['balance'] += amount
-    save_users()
-
-def can_do_task(user_id):
-    user_data = get_user_data(user_id)
-    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
-
-def get_time_left(user_id):
-    user_data = get_user_data(user_id)
-    time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
-    if time_left <= 0:
-        return "0"
-    hours = int(time_left // 3600)
-    minutes = int((time_left % 3600) // 60)
-    seconds = int(time_left % 60)
-    if hours > 0:
-        return f"{hours}ч {minutes}мин"
-    elif minutes > 0:
-        return f"{minutes}мин {seconds}сек"
-    else:
-        return f"{seconds}сек"
-
-async def check_sub(user_id):
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
 
 # ===== ЛОГИ =====
 class Colors:
@@ -238,8 +241,9 @@ def menu_keyboard():
     ])
 
 def withdraw_menu_keyboard(user_id):
+    user_data = get_user_data(user_id)
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💸 Вывести весь баланс ({get_user_data(user_id)['balance']:,})", callback_data="withdraw_all")],
+        [InlineKeyboardButton(text=f"💸 Вывести весь баланс ({user_data['balance']:,})", callback_data="withdraw_all")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
     ])
 
@@ -259,37 +263,30 @@ def admin_withdraw_keyboard(user_id):
 @dp.message_handler(commands=['start'])
 async def start(message: Message):
     username = message.from_user.first_name
-    user_id = str(message.from_user.id)
+    user_id = message.from_user.id
     
     args = message.get_args()
     if args and args.isdigit():
-        referrer_id = args
+        referrer_id = int(args)
         if referrer_id != user_id:
-            if user_id not in referrals.get(referrer_id, []):
-                if referrer_id not in referrals:
-                    referrals[referrer_id] = []
-                if user_id not in referrals[referrer_id]:
-                    referrals[referrer_id].append(user_id)
-                    add_balance(int(referrer_id), REFERRAL_BONUS)
-                    save_referrals()
-                    
-                    try:
-                        await bot.send_message(
-                            int(referrer_id),
-                            f"🎉 **По вашей ссылке зарегистрировался новый пользователь!**\n\n"
-                            f"👤 {username}\n"
-                            f"💰 **+{REFERRAL_BONUS:,} монет** зачислено на баланс!"
-                        )
-                    except:
-                        pass
-                    
-                    log_success(f"💰 Реферал: {username} (ID: {user_id}) от {referrer_id} +{REFERRAL_BONUS:,}")
+            if add_referral(referrer_id, user_id):
+                add_balance(referrer_id, REFERRAL_BONUS)
+                try:
+                    await bot.send_message(
+                        referrer_id,
+                        f"🎉 **По вашей ссылке зарегистрировался новый пользователь!**\n\n"
+                        f"👤 {username}\n"
+                        f"💰 **+{REFERRAL_BONUS:,} монет** зачислено на баланс!"
+                    )
+                except:
+                    pass
+                log_success(f"💰 Реферал: {username} (ID: {user_id}) от {referrer_id} +{REFERRAL_BONUS:,}")
+    
+    get_user_data(user_id)
     
     log_divider()
     log_big_title(f"НОВЫЙ ПОЛЬЗОВАТЕЛЬ: {username}")
     log_user_action(username, f"🚀 ЗАПУСТИЛ БОТА [ID: {user_id}]")
-    log_info(f"📅 Дата и время: {current_datetime()}")
-    log_info(f"📱 Username: @{message.from_user.username or 'Нет'}")
     log_divider()
     await message.answer("🌟 **Привет! Хочешь получить валюту?**", reply_markup=start_keyboard(), parse_mode="Markdown")
 
@@ -303,7 +300,8 @@ async def ref_link(callback: CallbackQuery):
     bot_username = bot_info.username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
-    referral_count = len(referrals.get(str(user_id), []))
+    response = supabase.table('users').select('referrals').eq('user_id', user_id).execute()
+    referral_count = len(response.data[0].get('referrals', [])) if response.data else 0
     
     await callback.message.answer(
         f"🎉 **Реферальная система**\n\n"
@@ -391,7 +389,7 @@ async def reviews_button(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.first_name
     user_id = callback.from_user.id
     log_user_action(username, "📝 НАЖАЛ ОТЗЫВЫ")
-    if user_id in users_who_reviewed:
+    if is_reviewed(user_id):
         log_warning(f"⚠️ {username} УЖЕ ПИСАЛ ОТЗЫВ")
         await callback.answer(
             "❌ **Вы уже оставляли отзыв!**\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
@@ -427,6 +425,7 @@ async def task(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.first_name
     chat_id = callback.message.chat.id
     
+    user_data = get_user_data(user_id)
     if not can_do_task(user_id):
         time_left = get_time_left(user_id)
         await remind_user_about_cooldown(user_id, chat_id)
@@ -466,10 +465,11 @@ async def get_photo(message: Message, state: FSMContext):
     log_user_action(username, "📸 ОТПРАВИЛ СКРИНШОТ")
     log_info(f"🆔 ID фото: {photo_id}")
     
-    if str(user_id) not in user_screenshots:
-        user_screenshots[str(user_id)] = []
+    # Проверяем на повторный скриншот
+    response = supabase.table('users').select('screenshots').eq('user_id', user_id).execute()
+    screenshots = response.data[0].get('screenshots', []) if response.data else []
     
-    if photo_id in user_screenshots[str(user_id)]:
+    if photo_id in screenshots:
         log_warning(f"⚠️ {username} ОТПРАВИЛ ПОВТОРНЫЙ СКРИНШОТ!")
         await message.answer(
             "❌ **ОБНАРУЖЕН ПОВТОРНЫЙ СКРИНШОТ!**\n\n"
@@ -491,8 +491,8 @@ async def get_photo(message: Message, state: FSMContext):
         await state.finish()
         return
     
-    user_screenshots[str(user_id)].append(photo_id)
-    save_screenshots()
+    # Сохраняем скриншот
+    add_screenshot(user_id, photo_id)
     
     await message.answer("✅ **Скриншот отправлен на проверку!**", parse_mode="Markdown")
     log_success(f"✅ Скриншот от {username} отправлен админу")
@@ -523,13 +523,15 @@ async def handle_review(message: Message, state: FSMContext):
     username = message.from_user.first_name
     user_tag = message.from_user.username or "Нет username"
     review_text = message.text
-    if user_id in users_who_reviewed:
+    
+    if is_reviewed(user_id):
         await message.answer(
             "❌ **Вы уже оставляли отзыв!**\n\nСпасибо за ваше мнение, но можно оставить только один отзыв.",
             parse_mode="Markdown"
         )
         await state.finish()
         return
+    
     log_review(f"📝 НОВЫЙ ОТЗЫВ от {username}: {review_text[:50]}...")
     try:
         review_message = (
@@ -543,7 +545,7 @@ async def handle_review(message: Message, state: FSMContext):
             text=review_message,
             parse_mode="Markdown"
         )
-        users_who_reviewed.add(user_id)
+        set_reviewed(user_id)
         log_success(f"✅ Отзыв от {username} опубликован в канале {REVIEW_CHANNEL_ID}")
         await message.answer(
             "✅ **Спасибо за ваш отзыв!**\n\n"
@@ -573,7 +575,8 @@ async def balance(callback: CallbackQuery):
     else:
         task_status = f"⏳ Через {get_time_left(user_id)}"
     
-    referral_count = len(referrals.get(str(user_id), []))
+    response = supabase.table('users').select('referrals').eq('user_id', user_id).execute()
+    referral_count = len(response.data[0].get('referrals', [])) if response.data else 0
     
     await callback.message.answer(
         f"💰 **ТВОЙ БАЛАНС**\n\n"
@@ -621,16 +624,19 @@ async def withdraw_all(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     username = callback.from_user.first_name
     user_data = get_user_data(user_id)
-    log_user_action(username, f"💸 ХОЧЕТ ВЫВЕСТИ {user_data['balance']:,} монет")
-    if user_data['balance'] <= 0:
+    amount = user_data['balance']
+    
+    log_user_action(username, f"💸 ХОЧЕТ ВЫВЕСТИ {amount:,} монет")
+    if amount <= 0:
         await callback.answer("❌ Нет монет для вывода!", show_alert=True)
         return
+    
     await callback.message.edit_text(
         f"💸 **Вывод средств**\n\n"
-        f"💰 **Сумма к выводу:** {user_data['balance']:,} монет\n\n"
+        f"💰 **Сумма к выводу:** {amount:,} монет\n\n"
         f"📝 **Инструкция:**\n"
         f"1️⃣ Зайди на сервер **HolyTime**\n"
-        f"2️⃣ Выставь на аукцион предмет за **{user_data['balance']:,} монет**\n"
+        f"2️⃣ Выставь на аукцион предмет за **{amount:,} монет**\n"
         f"3️⃣ Напиши сюда свой **никнейм**\n\n"
         f"✍️ **Введи свой никнейм:**",
         parse_mode="Markdown"
@@ -644,6 +650,7 @@ async def handle_nickname(message: Message, state: FSMContext):
     nickname = message.text.strip()
     user_data = get_user_data(user_id)
     amount = user_data['balance']
+    
     log_user_action(username, f"✍️ ВВЕЛ НИКНЕЙМ: {nickname}")
     if len(nickname) < 2 or len(nickname) > 32:
         await message.answer(
@@ -651,13 +658,15 @@ async def handle_nickname(message: Message, state: FSMContext):
             "Введи никнейм длиной от 2 до 32 символов:"
         )
         return
-    users[str(user_id)]['last_task_time'] = time.time()
-    save_users()
+    
+    update_last_task(user_id, time.time())
+    
     withdraw_requests[user_id] = {
         'amount': amount,
         'nickname': nickname,
         'time': time.time()
     }
+    
     await message.answer(
         f"✅ **Запрос на вывод отправлен!**\n\n"
         f"💰 **Сумма:** {amount:,} монет\n"
@@ -685,7 +694,7 @@ async def handle_nickname(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка при отправке запроса админу")
     await state.finish()
 
-# ===== ИСПРАВЛЕННЫЕ АДМИН ФУНКЦИИ =====
+# ===== АДМИН ФУНКЦИИ =====
 @dp.callback_query_handler(lambda c: c.data.startswith('ok_'))
 async def approve_screenshot(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -694,8 +703,7 @@ async def approve_screenshot(callback: CallbackQuery):
         return
     user_id = int(callback.data.split("_")[1])
     add_balance(user_id, REWARD_AMOUNT)
-    users[str(user_id)]['last_task_time'] = time.time()
-    save_users()
+    update_last_task(user_id, time.time())
     log_big_title(f"АДМИН ПОДТВЕРДИЛ СКРИНШОТ")
     log_action(f"👑 Админ подтвердил скриншот пользователя ID:{user_id}")
     log_success(f"💰 Начислено {REWARD_AMOUNT:,} монет")
@@ -704,11 +712,12 @@ async def approve_screenshot(callback: CallbackQuery):
             [InlineKeyboardButton(text="💸 ВЫВЕСТИ СРЕДСТВА", callback_data="withdraw_menu")]
         ])
         
+        user_data = get_user_data(user_id)
         await bot.send_message(
             user_id,
             f"✅ **Админ {ADMIN_USERNAME}** подтвердил ваш скриншот!\n\n"
             f"🎉 **+{REWARD_AMOUNT:,} монет** зачислено на баланс!\n"
-            f"💰 **Текущий баланс:** {users[str(user_id)]['balance']:,} монет\n\n"
+            f"💰 **Текущий баланс:** {user_data['balance']:,} монет\n\n"
             f"💸 **Теперь вы можете вывести свои средства, нажав на кнопку ниже**",
             parse_mode="Markdown",
             reply_markup=withdraw_keyboard
@@ -749,25 +758,30 @@ async def bought(callback: CallbackQuery):
         await callback.answer("Нет прав!", show_alert=True)
         return
     user_id = int(callback.data.split("_")[1])
-    if str(user_id) in users:
-        old_balance = users[str(user_id)]['balance']
-        users[str(user_id)]['balance'] = 0
-        save_users()
-        log_big_title(f"АДМИН: КУПЛЕНО")
-        log_action(f"👑 Админ подтвердил покупку для пользователя {user_id}")
-        log_success(f"💰 Списано {old_balance:,} монет")
-        try:
-            await bot.send_message(
-                user_id,
-                "✅ **Администрация купила ваш предмет!**\n\n"
-                "📝 **Если хотите, напишите отзыв о нашем проекте!**\n\n"
-                "👉 Нажмите кнопку **📝 ОТЗЫВЫ** в главном меню и напишите отзыв\n\n"
-                "📢 Ваш отзыв будет опубликован в канале @HolyBuxOtziv от вашего имени",
-                parse_mode="Markdown"
-            )
-            log_success(f"✅ Уведомление о покупке отправлено пользователю {user_id}")
-        except Exception as e:
-            log_error(f"❌ Не удалось отправить уведомление: {e}")
+    
+    user_data = get_user_data(user_id)
+    old_balance = user_data['balance']
+    
+    # Обнуляем баланс
+    supabase.table('users').update({'balance': 0}).eq('user_id', user_id).execute()
+    
+    log_big_title(f"АДМИН: КУПЛЕНО")
+    log_action(f"👑 Админ подтвердил покупку для пользователя {user_id}")
+    log_success(f"💰 Списано {old_balance:,} монет")
+    
+    try:
+        await bot.send_message(
+            user_id,
+            "✅ **Администрация купила ваш предмет!**\n\n"
+            "📝 **Если хотите, напишите отзыв о нашем проекте!**\n\n"
+            "👉 Нажмите кнопку **📝 ОТЗЫВЫ** в главном меню и напишите отзыв\n\n"
+            "📢 Ваш отзыв будет опубликован в канале @HolyBuxOtziv от вашего имени",
+            parse_mode="Markdown"
+        )
+        log_success(f"✅ Уведомление о покупке отправлено пользователю {user_id}")
+    except Exception as e:
+        log_error(f"❌ Не удалось отправить уведомление: {e}")
+    
     await callback.message.delete()
     await callback.answer("✅ Готово! Сообщение удалено")
 
@@ -777,8 +791,10 @@ async def not_bought(callback: CallbackQuery):
         await callback.answer("Нет прав!", show_alert=True)
         return
     user_id = int(callback.data.split("_")[1])
+    
     log_big_title(f"АДМИН: НЕ КУПЛЕНО")
     log_action(f"👑 Админ отклонил покупку для пользователя {user_id}")
+    
     try:
         await bot.send_message(
             user_id,
@@ -790,6 +806,7 @@ async def not_bought(callback: CallbackQuery):
         log_success(f"✅ Уведомление об отказе отправлено пользователю {user_id}")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление: {e}")
+    
     await callback.message.delete()
     await callback.answer("✅ Готово! Сообщение удалено")
 
@@ -810,10 +827,33 @@ async def remind_user_about_cooldown(user_id, chat_id):
         except Exception as e:
             log_error(f"Ошибка при отправке напоминания: {e}")
 
+def get_time_left(user_id):
+    user_data = get_user_data(user_id)
+    time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
+    if time_left <= 0:
+        return "0"
+    hours = int(time_left // 3600)
+    minutes = int((time_left % 3600) // 60)
+    seconds = int(time_left % 60)
+    if hours > 0:
+        return f"{hours}ч {minutes}мин"
+    elif minutes > 0:
+        return f"{minutes}мин {seconds}сек"
+    else:
+        return f"{seconds}сек"
+
+def can_do_task(user_id):
+    user_data = get_user_data(user_id)
+    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
+
+async def check_sub(user_id):
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
+
 async def start_bot():
-    load_users()
-    load_referrals()
-    load_screenshots()
     print(f"{Colors.BOLD}{Colors.PURPLE}╔══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}║                      🚀 БОТ ЗАПУЩЕН 🚀                       ║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.PURPLE}╠══════════════════════════════════════════════════════════════╣{Colors.END}")
@@ -848,16 +888,8 @@ if __name__ == "__main__":
         asyncio.run(start_bot())
     except KeyboardInterrupt:
         log_warning("⏹ Бот остановлен пользователем")
-        save_users()
-        save_referrals()
-        save_screenshots()
         web_process.terminate()
         print(f"{Colors.BOLD}{Colors.PURPLE}До свидания! Бот завершил работу.{Colors.END}")
     except Exception as e:
         log_error(f"❌ Критическая ошибка: {e}")
-        save_users()
-        save_referrals()
-        save_screenshots()
         web_process.terminate()
-
-
