@@ -7,7 +7,7 @@ from datetime import datetime
 from threading import Thread
 import requests
 
-# Версия: 20250228-150000 🔥
+# Версия: 20260228-190035 💫
 
 # ===== САМОПИНГЕР =====
 def ping_self():
@@ -22,7 +22,7 @@ def ping_self():
 
 ping_thread = Thread(target=ping_self, daemon=True)
 ping_thread.start()
-print("🔥 Самопингер активен 24/7")
+print("💫 Самопингер активен 24/7")
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
