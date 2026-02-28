@@ -100,27 +100,39 @@ logging.basicConfig(level=logging.CRITICAL)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ===== ФУНКЦИИ ДЛЯ СОХРАНЕНИЯ И ЗАГРУЗКИ ДАННЫХ =====
-DATA_FILE = 'users_data.json'
-users = {}
+# ===== ФАЙЛ ДЛЯ РЕФЕРАЛЬНЫХ ДАННЫХ =====
+REF_DATA_FILE = 'ref_data.json'
 
-def load_users():
-    global users
-    if os.path.exists(DATA_FILE):
+# Функции для работы с реферальными данными
+def load_ref_data():
+    if os.path.exists(REF_DATA_FILE):
         try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                users = json.load(f)
+            with open(REF_DATA_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
         except:
-            users = {}
+            return {}
     else:
-        users = {}
+        return {}
 
-def save_users():
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f)
+def save_ref_data(data):
+    with open(REF_DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
 
-# Загружаем данные при старте
-load_users()
+def get_user_ref_data(user_id):
+    data = load_ref_data()
+    user_id_str = str(user_id)
+    if user_id_str not in data:
+        ref_link = f"https://t.me/{bot.username}?start=ref_{user_id_str}"
+        data[user_id_str] = {'referrals': 0, 'ref_link': ref_link}
+        save_ref_data(data)
+    return data[user_id_str]
+
+def increment_referral(referrer_id):
+    data = load_ref_data()
+    referrer_id_str = str(referrer_id)
+    if referrer_id_str in data:
+        data[referrer_id_str]['referrals'] += 1
+        save_ref_data(data)
 
 # ===== КЛАССЫ СОСТОЯНИЙ =====
 class States(StatesGroup):
@@ -141,13 +153,11 @@ def add_balance(user_id: int, amount: int):
     users[user_str_id]['balance'] += amount
     save_users()
 
-def can_do_task(user_id: int) -> bool:
+def can_do_task(user_id):
     user_data = get_user_data(user_id)
-    current_time = time.time()
-    time_passed = current_time - user_data['last_task_time']
-    return time_passed >= COOLDOWN_SECONDS
+    return (time.time() - user_data['last_task_time']) >= COOLDOWN_SECONDS
 
-def get_time_left(user_id: int) -> str:
+def get_time_left(user_id):
     user_data = get_user_data(user_id)
     time_left = COOLDOWN_SECONDS - (time.time() - user_data['last_task_time'])
     if time_left <= 0:
@@ -193,23 +203,23 @@ def menu_keyboard():
         [InlineKeyboardButton(text="💰 БАЛАНС", callback_data="balance")],
         [InlineKeyboardButton(text="💸 ВЫВОД", callback_data="withdraw_menu")],
         [InlineKeyboardButton(text="📝 ОТЗЫВЫ", callback_data="reviews")],
-        [InlineKeyboardButton(text="❓ ПОМОЩЬ", callback_data="help")]
+        [InlineKeyboardButton(text="❓ ПОМОЩЬ", callback_data="help")],
+        [InlineKeyboardButton(text="Друзья", callback_data="ref_link")]  # новая кнопка
     ])
 
-def withdraw_menu_keyboard(user_id: int):
-    balance = get_user_data(user_id)['balance']
+def withdraw_menu_keyboard(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💸 Вывести весь баланс ({balance:,})", callback_data="withdraw_all")],
+        [InlineKeyboardButton(text=f"💸 Вывести весь баланс ({get_user_data(user_id)['balance']:,})", callback_data="withdraw_all")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
     ])
 
-def admin_screenshot_keyboard(user_id: int):
+def admin_screenshot_keyboard(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"ok_{user_id}"),
          InlineKeyboardButton(text="❌ Отклонить", callback_data=f"no_{user_id}")]
     ])
 
-def admin_withdraw_keyboard(user_id: int):
+def admin_withdraw_keyboard(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Купил", callback_data=f"bought_{user_id}"),
          InlineKeyboardButton(text="❌ Не купил", callback_data=f"not_bought_{user_id}")]
@@ -570,7 +580,7 @@ async def approve_screenshot(callback: CallbackQuery):
     try:
         await bot.send_message(
             user_id,
-            f"✅ **Админ {ADMIN_USERNAME} подтвердил ваш скриншот!**\n\n"
+            f"✅ **Админ {ADMIN_USERNAME}** подтвердил ваш скриншот!\n\n"
             f"🎉 **+{REWARD_AMOUNT:,} монет** зачислено на баланс!\n"
             f"💰 **Текущий баланс:** {users[str(user_id)]['balance']:,} монет",
             parse_mode="Markdown"
@@ -578,7 +588,8 @@ async def approve_screenshot(callback: CallbackQuery):
         log_success(f"✅ Уведомление отправлено пользователю")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление пользователю: {e}")
-    await callback.message.edit_caption(callback.message.caption + "\n✅ ПОДТВЕРЖДЕНО")
+    # Удаляем сообщение с фото у администратора
+    await callback.message.delete()
     await callback.answer("Готово!")
 
 @dp.callback_query(F.data.startswith("no_"))
@@ -601,7 +612,8 @@ async def reject_screenshot(callback: CallbackQuery):
         log_success(f"✅ Уведомление об отказе отправлено")
     except Exception as e:
         log_error(f"❌ Не удалось отправить уведомление об отказе: {e}")
-        await callback.message.edit_caption(callback.message.caption + "\n❌ ОТКЛОНЕНО")
+    # Удаляем сообщение с фото у администратора
+    await callback.message.delete()
     await callback.answer("Готово!")
 
 @dp.callback_query(F.data.startswith("bought_"))
