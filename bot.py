@@ -7,7 +7,7 @@ from datetime import datetime
 from threading import Thread
 import requests
 
-# Версия: 20250228-150000 🔥  # GitHub Actions будет менять смайлик
+# Версия: 20250228-150000 🔥
 
 # ===== САМОПИНГЕР =====
 def ping_self():
@@ -857,4 +857,5 @@ if __name__ == "__main__":
         save_referrals()
         save_screenshots()
         web_process.terminate()
+
 
