@@ -288,7 +288,7 @@ async def ref_link(callback: CallbackQuery):
     referral_count = len(referrals.get(str(user_id), []))
     
     await callback.message.answer(
-        f"🎉 **Реферальная система**\n\n"
+        f"💎 **Реферальная система**\n\n"
         f"👥 **Приглашено друзей:** {referral_count}\n"
         f"💰 **Получено бонусов:** {referral_count * REFERRAL_BONUS:,} монет\n\n"
         f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
@@ -832,3 +832,4 @@ if __name__ == "__main__":
         save_users()
         save_referrals()
         save_screenshots()
+
