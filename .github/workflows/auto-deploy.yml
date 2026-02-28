@@ -2,7 +2,7 @@ name: Auto Deploy to Keep Render Alive
 
 on:
   schedule:
-    - cron: '*/3 * * * *'  # Каждые 3 минуты
+    - cron: '*/3 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -18,20 +18,20 @@ jobs:
 
       - name: Update smileys and version
         run: |
-          # Массив смайликов для ротации
+          # Массив смайликов
           SMILEYS=("🔥" "✨" "⚡" "💫" "⭐" "🌟" "💥" "🚀" "🎯" "⚙️")
           RANDOM_SMILEY=${SMILEYS[$RANDOM % ${#SMILEYS[@]}]}
           
           echo "👉 Новый смайлик: ${RANDOM_SMILEY}"
           
           # Меняем смайлик в самопинге
-          sed -i "s/.*print(\".* Самопингер активен 24\/7.*/print(\"${RANDOM_SMILEY} Самопингер активен 24\/7\")/" bot.py || true
+          sed -i "s/.*Самопингер активен 24\/7.*/print(\"${RANDOM_SMILEY} Самопингер активен 24\/7\")/" bot.py || true
           
           # Меняем смайлик в версии
           sed -i "s/^# Версия:.*/# Версия: $(date +%Y%m%d-%H%M%S) ${RANDOM_SMILEY}/" bot.py || true
           
           # Меняем смайлик в автопинге
-          sed -i "s/.*print(\".* Автопинг:.*/print(\"${RANDOM_SMILEY} Автопинг: $(date +%H:%M:%S) - Статус: {response.status_code}\")/" bot.py || true
+          sed -i "s/.*Автопинг:.*/print(\"${RANDOM_SMILEY} Автопинг: $(date +%H:%M:%S) - Статус: {response.status_code}\")/" bot.py || true
 
       - name: Commit and push changes
         run: |
