@@ -14,7 +14,7 @@ SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 print("✅ Supabase подключен!")
 
-# Версия: 20260301-194057 🎯
+# Версия: 20260301-194318 🎯
 
 # ===== САМОПИНГЕР =====
 def ping_self():
@@ -23,14 +23,14 @@ def ping_self():
     while True:
         try:
             response = requests.get(render_url, headers=headers, timeout=10)
-print("💫 Автопинг: 19:00:23 - Статус: {response.status_code}")
+print("🎯 Автопинг: 19:43:18 - Статус: {response.status_code}")
         except Exception as e:
             print(f"❌ Ошибка пинга: {e}")
         time.sleep(600)
 
 ping_thread = Thread(target=ping_self, daemon=True)
 ping_thread.start()
-print("💫 Самопингер активен 24/7")
+print("🎯 Самопингер активен 24/7")
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
