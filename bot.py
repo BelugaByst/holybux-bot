@@ -14,7 +14,7 @@ SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 print("✅ Supabase подключен!")
 
-# Версия: 20260302-160540 ⚡
+# Версия: 20260302-160708 🎯
 
 # ===== САМОПИНГЕР =====
 def ping_self():
@@ -23,7 +23,7 @@ def ping_self():
     while True:
         try:
             response = requests.get(render_url, headers=headers, timeout=10)
-print("🎯 Автопинг: 14:31:15 - Статус: {response.status_code}")
+print("🎯 Автопинг: 16:07:08 - Статус: {response.status_code}")
         except Exception as e:
             print(f"❌ Ошибка пинга: {e}")
         time.sleep(600)
