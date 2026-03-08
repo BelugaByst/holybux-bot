@@ -14,7 +14,7 @@ SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 print("✅ Supabase подключен!")
 
-# Версия: 20260308-214718 🎯
+# Версия: 20260308-215825 ⭐
 
 # ===== САМОПИНГЕР =====
 def ping_self():
